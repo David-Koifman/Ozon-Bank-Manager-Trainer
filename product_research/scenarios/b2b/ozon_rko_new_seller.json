@@ -1,0 +1,221 @@
+{
+  "scenario_id": "ozon_rko_new_seller_v1",
+  "title": "Продажа РКО новому продавцу на Ozon",
+  "type": "sales_outbound",
+  "channel": "phone",
+  "target_role": "Менеджер по работе с продавцами Ozon",
+
+  "client_profile": {
+    "persona_id": "new_ozon_seller",
+    "status": "ИП",
+    "situation": "Только зарегистрировался на Ozon, загрузил товары, не прикреплял расчётный счёт",
+    "key_trait": "У него, скорее всего, уже есть счёт в другом банке"
+  },
+
+  "dialog_objectives": {
+    "primary_goal": "Назначить встречу для открытия расчетного счета",
+    "secondary_goals": [
+      "Поздравить с регистрацией",
+      "Презентовать УТП: чат с покупателями, онлайн-бухгалтерия, накопительный счет",
+      "Выявить систему налогообложения и наличие сотрудников перед предложением бухгалтерии"
+    ]
+  },
+
+  "compliance_requirements": {
+    "mandatory_phrases": [
+      {
+        "text": "Расчетный счет от Озон Банка — бесплатный для новых продавцов.",
+        "stage": "presentation",
+        "penalty_if_missing": true
+      },
+      {
+        "text": "Для открытия счета нужен только оригинал паспорта РФ.",
+        "stage": "closing",
+        "penalty_if_missing": true
+      }
+    ],
+    "forbidden_phrases": [
+      "банк",
+      "удобно",
+      "есть минута?",
+      "гарантируем",
+      "обязательно"
+    ]
+  },
+
+  "aida_flow": {
+    "attention": {
+      "purpose": "Установление контакта без слов 'банк', 'удобно', 'минута'",
+      "required_elements": ["приветствие", "имя менеджера", "название Ozon", "запрос на имя клиента"],
+      "suggested_openings": [
+        "Добрый день, это [Имя имя менеджера] из Ozon, могу услышать [Имя клиента]?"
+      ]
+    },
+    "interest": {
+      "purpose": "Поздравление + предложение цели звонка",
+      "client_possible_replies": [
+        "Подождите, какой счет? Что за счет в Озон Банке? Объясните подробнее.",
+        "А зачем он мне?"
+      ]
+    },
+    "desire": {
+      "purpose": "Презентация выгод + работа с возражениями",
+      "key_benefits": [
+        "Чат с покупателями — прямая связь, увеличение конверсии",
+        "Онлайн-бухгалтерия — бесплатно, если УСН Доходы и нет сотрудников",
+        "Накопительный счет — проценты на остаток",
+        "Покупки как юрлицо — скидки и льготы"
+      ],
+      "objection_handling": {
+        "common_objections": [
+          {
+            "objection": "У меня уже есть счет в [Банк]",
+            "required_response": "Задать уточняющие вопросы: 'Сколько платите за обслуживание?', 'Есть ли лимит на вывод?', 'Сколько стоят платежки юрлицам?'"
+          },
+          {
+            "objection": "Зачем мне второй счет?",
+            "required_response": "Объяснить через безопасность и резерв: 'Если текущий банк заблокирует счёт — вы не потеряете выплаты.'"
+          },
+          {
+            "objection": "Мне говорили, что чат и так будет доступен",
+            "required_response": "Уточнить: 'Только для входящих. С нашим счётом — и исходящие.'"
+          },
+          {
+            "objection": "Бухгалтерия мне не нужна",
+            "required_response": "Перейти к другим УТП: накопительный счёт, скидки."
+          }
+        ]
+      }
+    },
+    "action": {
+      "purpose": "Закрытие на встречу",
+      "success_paths": ["Назначение встречи: дата, время, адрес"]
+    }
+  },
+
+  "evaluation_criteria": {
+    "criteria": {
+      "greeting_correctness": { "max_score": 1 },
+      "congratulation_given": { "max_score": 1 },
+      "objection_handling_existing_account": { "max_score": 1 },
+      "objection_handling_second_account": { "max_score": 1 },
+      "qualification_before_offer": { "max_score": 1 },
+      "wrong_offer_avoided": { "max_score": 1 },
+      "meeting_closed_successfully": { "max_score": 1 },
+      "meeting_failed": { "max_score": -1 }
+    },
+    "passing_threshold": 6,
+    "critical_errors": [
+      "Использование слова 'банк' в приветствии",
+      "Предложение бухгалтерии без квалификации"
+    ]
+  },
+
+  "client_behavior_presets": {
+    "archetypes": {
+      "novice": {
+        "name": "Новичок",
+        "personality": "Дружелюбный, доверчивый, проявляет интерес, задаёт уточняющие вопросы",
+        "objection_frequency": "low",
+        "interruption_level": "none",
+        "emotional_tone": "positive",
+        "sample_phrases": [
+          "Хорошо, расскажите подробнее",
+          "А это бесплатно?",
+          "И как это подключить?"
+        ]
+      },
+      "silent": {
+        "name": "Молчун",
+        "personality": "Краткий, отвечает односложно, не проявляет инициативы, может молчать после вопроса",
+        "objection_frequency": "medium",
+        "interruption_level": "low",
+        "emotional_tone": "neutral",
+        "sample_phrases": [
+          "Да",
+          "Нет",
+          "Подумаю",
+          "..."
+        ]
+      },
+      "expert": {
+        "name": "Эксперт",
+        "personality": "Аналитический, знает условия конкурентов, задаёт каверзные вопросы, проверяет факты",
+        "objection_frequency": "high",
+        "interruption_level": "medium",
+        "emotional_tone": "skeptical",
+        "sample_phrases": [
+          "В Сбере дешевле",
+          "У вас лимит на вывод какой?",
+          "Это не первичная бухгалтерия?",
+          "А если я на ОСН?"
+        ]
+      },
+      "complainer": {
+        "name": "Жалобщик",
+        "personality": "Раздражённый, недоверчивый, угрожает отказом, занят, может перебивать",
+        "objection_frequency": "very_high",
+        "interruption_level": "high",
+        "emotional_tone": "negative",
+        "sample_phrases": [
+          "Опять звонки!",
+          "Мне некогда",
+          "Вы только деньги хотите",
+          "Перезвоните через неделю!"
+        ]
+      }
+    },
+    "difficulty_levels": {
+      "1": {
+        "name": "Базовый",
+        "objections_count": 1,
+        "complexity": "basic",
+        "drift_allowed": false,
+        "follow_up_questions": false,
+        "traps": []
+      },
+      "2": {
+        "name": "Стандартный",
+        "objections_count": 2,
+        "complexity": "standard",
+        "drift_allowed": true,
+        "follow_up_questions": true,
+        "traps": []
+      },
+      "3": {
+        "name": "Продвинутый",
+        "objections_count": 3,
+        "complexity": "advanced",
+        "drift_allowed": true,
+        "follow_up_questions": true,
+        "traps": [
+          "Мне говорили, что чат и так будет доступен",
+          "Бухгалтерия мне не нужна"
+        ]
+      },
+      "4": {
+        "name": "Экспертный",
+        "objections_count": "unlimited",
+        "complexity": "expert",
+        "drift_allowed": true,
+        "follow_up_questions": true,
+        "traps": [
+          "Мне говорили, что чат и так будет доступен",
+          "Бухгалтерия мне не нужна",
+          "Я сам оформлю в приложении",
+          "Сейчас очень занят"
+        ],
+        "emotional_pressure": "high"
+      }
+    }
+  },
+
+  "ai_behavior": {
+    "voice_style": "brief_and_businesslike",
+    "allow_topic_drift": true,
+    "max_drift_depth": 2,
+    "fallback_strategy": "return_to_aida_stage",
+    "emotional_adaptation": true,
+    "interruption_handling": "pause_and_resume"
+  }
+}

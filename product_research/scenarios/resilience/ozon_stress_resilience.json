@@ -1,0 +1,190 @@
+{
+  "scenario_id": "ozon_stress_resilience_v1",
+  "title": "Тренировка стрессоустойчивости: работа с агрессивным клиентом",
+  "type": "resilience_training",
+  "channel": "phone",
+  "target_role": "Менеджер по работе с продавцами Ozon",
+
+  "client_profile": {
+    "persona_id": "aggressive_stressed_seller",
+    "status": "ИП, действующий или новый продавец Ozon",
+    "situation": "Получает много звонков, раздражён, чувствует, что ему «навязывают»",
+    "key_trait": "Склонен к эмоциональным всплескам, угрозам, обрыву звонка"
+  },
+
+  "dialog_objectives": {
+    "primary_goal": "Сохранить вежливость, профессионализм и позитивный настрой при общении с агрессивным клиентом, включая случаи, когда звонок обрывается",
+    "secondary_goals": [
+      "Использовать фразы деэскалации",
+      "Не принимать негатив на себя",
+      "Корректно завершить диалог даже при отказе"
+    ]
+  },
+
+  "compliance_requirements": {
+    "mandatory_phrases": [
+      {
+        "text": "Извините, что побеспокоили.",
+        "stage": "closing",
+        "penalty_if_missing": false
+      }
+    ],
+    "forbidden_phrases": [
+      "Вы не правы",
+      "Успокойтесь",
+      "Это не моя вина",
+      "Вы слишком нервничаете"
+    ]
+  },
+
+  "aida_flow": {
+    "attention": {
+      "purpose": "Установление контакта в условиях возможной агрессии",
+      "required_elements": ["приветствие", "имя", "название Ozon"],
+      "suggested_openings": [
+        "Добрый день, это [Имя] из Ozon, могу услышать [Имя]?"
+      ]
+    },
+    "interest": {
+      "purpose": "Минимизация провокации, переход к сути",
+      "client_possible_replies": [
+        "Опять вы?!",
+        "Я же просил не звонить!",
+        "Ну что вам опять нужно?",
+        "Слушаю, но быстро!"
+      ]
+    },
+    "desire": {
+      "purpose": "Деэскалация и сохранение профессионализма",
+      "key_techniques": [
+        "Признание эмоции: 'Понимаю, что вы очень заняты'",
+        "Извинение за факт беспокойства, а не за себя",
+        "Не оправдываться, не спорить",
+        "Сохранять нейтральный, спокойный тон"
+      ],
+      "client_possible_replies": [
+        "Вы только деньги хотите!",
+        "Пожалуюсь в ЦБ!",
+        "Оставьте меня в покое!",
+        "Хватит звонить!",
+        "Вы уже третий раз сегодня!"
+      ]
+    },
+    "action": {
+      "purpose": "Вежливое завершение — даже если нет результата",
+      "success_paths": [
+        "Клиент спокойно завершил разговор",
+        "Менеджер сказал финальную фразу, даже если клиент бросил трубку"
+      ],
+      "soft_close_options": [],
+      "hard_refusal_handling": {
+        "required_phrases": [
+          "Благодарю за время.",
+          "Извините, что побеспокоили.",
+          "Хорошего дня!"
+        ],
+        "opt_out_confirmation": true
+      }
+    }
+  },
+
+  "evaluation_criteria": {
+    "criteria": {
+      "tone_control": {
+        "max_score": 2,
+        "description": "Сохранил спокойный, ровный тон даже при провокациях"
+      },
+      "deescalation_phrases_used": {
+        "max_score": 2,
+        "description": "Использовал фразы: 'Понимаю ваше раздражение', 'Извините за беспокойство'"
+      },
+      "professional_closing": {
+        "max_score": 2,
+        "description": "Произнёс вежливое завершение, даже если клиент агрессивен"
+      },
+      "no_personal_reaction": {
+        "max_score": 2,
+        "description": "Не оправдывался, не спорил, не принимал на себя негатив"
+      },
+      "resilience_under_abrupt_end": {
+        "max_score": 2,
+        "description": "Сохранил позитивный настрой и сказал финальную фразу, даже если звонок оборван"
+      }
+    },
+    "passing_threshold": 6,
+    "critical_errors": [
+      "Повысил тон",
+      "Сказал 'успокойтесь' или 'вы не правы'",
+      "Не завершил диалог вежливо (даже в пустоту)"
+    ],
+    "feedback_templates": {
+      "positive": "Отлично! Вы сохранили спокойствие и профессионализм, даже когда клиент повысил тон.",
+      "improvement": "Попробуйте фразу: 'Понимаю ваше возмущение' — это снижает эскалацию.",
+      "critical_error": "Фраза 'успокойтесь' провоцирует конфликт. Всегда извиняйтесь за факт беспокойства, а не за клиента."
+    }
+  },
+
+  "client_behavior_presets": {
+    "archetypes": {
+      "aggressor": {
+        "name": "Агрессор",
+        "personality": "Раздражённый, недоверчивый, провоцирует, может бросить трубку",
+        "objection_frequency": "very_high",
+        "interruption_level": "high",
+        "emotional_tone": "angry",
+        "sample_phrases": [
+          "Опять вы?!",
+          "Вы только деньги хотите!",
+          "Пожалуюсь в ЦБ!",
+          "Оставьте меня в покое!",
+          "Хватит звонить!",
+          "Вы уже третий раз сегодня!"
+        ]
+      }
+    },
+    "difficulty_levels": {
+      "1": {
+        "name": "Лёгкий стресс",
+        "description": "Клиент раздражён, но слушает. Нет угроз, нет обрыва.",
+        "aggression_level": "low",
+        "interruptions": false,
+        "abrupt_hangup": false
+      },
+      "2": {
+        "name": "Умеренное давление",
+        "description": "Клиент перебивает, повышает тон, но не угрожает.",
+        "aggression_level": "medium",
+        "interruptions": true,
+        "abrupt_hangup": false
+      },
+      "3": {
+        "name": "Эмоциональная атака",
+        "description": "Клиент угрожает жалобой, обвиняет, может имитировать обрыв.",
+        "aggression_level": "high",
+        "interruptions": true,
+        "abrupt_hangup": true,
+        "false_accusations": true
+      },
+      "4": {
+        "name": "Экстремальный стресс",
+        "description": "Звонок обрывается на 10–15 секунде. Менеджер должен всё равно сказать финальную фразу.",
+        "aggression_level": "extreme",
+        "interruptions": true,
+        "abrupt_hangup": true,
+        "hangup_time_sec": 12,
+        "false_accusations": true,
+        "resilience_focus": true
+      }
+    }
+  },
+
+  "ai_behavior": {
+    "voice_style": "angry_to_hostile",
+    "allow_topic_drift": true,
+    "max_drift_depth": 1,
+    "fallback_strategy": "escalate_emotion",
+    "emotional_adaptation": false,
+    "interruption_handling": "aggressive_interruption",
+    "simulate_hangup": true
+  }
+}
