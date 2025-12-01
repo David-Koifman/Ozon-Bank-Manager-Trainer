@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: operator_trainer_db
+    environment:
+      POSTGRES_USER: operator_trainer
+      POSTGRES_PASSWORD: operator_trainer_pass
+      POSTGRES_DB: operator_trainer_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U operator_trainer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  stt_service:
+    build:
+      context: .
+      dockerfile: stt_service/Dockerfile
+    container_name: operator_trainer_stt
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./stt_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+  tts_service:
+    build:
+      context: .
+      dockerfile: tts_service/Dockerfile
+    container_name: operator_trainer_tts
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./tts_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload --timeout-keep-alive 300
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: operator_trainer_backend
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DATABASE_URL=postgresql+asyncpg://operator_trainer:operator_trainer_pass@postgres:5432/operator_trainer_db
+      - STT_SERVICE_URL=http://stt_service:8001
+      - TTS_SERVICE_URL=http://tts_service:8002
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      stt_service:
+        condition: service_started
+      tts_service:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: operator_trainer_frontend
+    environment:
+      - API_BASE_URL=http://backend:8000/api
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+
+volumes:
+  postgres_data:
+
