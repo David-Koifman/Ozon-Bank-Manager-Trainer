@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 MODEL_URL = 'https://models.silero.ai/models/tts/ru/v4_ru.pt'
 MODEL_FILE = 'model.pt'
 SAMPLE_RATE = 48000
-DEFAULT_SPEAKER = 'aidar'  # Options: 'aidar', 'kseniya', 'baya', 'xenia'
+DEFAULT_SPEAKER = 'aidar'  # Options: 'aidar', 'baya', 'kseniya', 'xenia', 'eugene'
 
 
 class TTSComponent:
@@ -59,7 +59,7 @@ class TTSComponent:
         Args:
             text: Text to synthesize
             language: Language code (default: "ru" for Russian)
-            speaker: Speaker voice ('aidar', 'kseniya', 'baya', 'xenia')
+            speaker: Speaker voice ('aidar', 'baya', 'kseniya', 'xenia', 'eugene')
         """
         if not self._initialized:
             raise RuntimeError("TTS model not initialized. Call initialize() first.")

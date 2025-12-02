@@ -18,15 +18,21 @@ class TTSClient:
         timeout = httpx.Timeout(300.0, connect=10.0)  # 5 minutes total, 10s connect
         self.client = httpx.AsyncClient(timeout=timeout)
     
-    async def synthesize(self, text: str, language: str = "ru") -> str:
+    async def synthesize(self, text: str, language: str = "ru", speaker: str = "aidar") -> str:
         """
         Synthesize text to speech using TTS service
+        
+        Args:
+            text: Text to synthesize
+            language: Language code (default: "ru" for Russian)
+            speaker: Speaker voice ('aidar', 'baya', 'kseniya', 'xenia', 'eugene')
         """
         try:
-            logger.info(f"TTSClient: Sending synthesis request to {self.service_url}/synthesize")
+            logger.info(f"TTSClient: Sending synthesis request to {self.service_url}/synthesize (speaker: {speaker})")
             payload = {
                 "text": text,
-                "language": language
+                "language": language,
+                "speaker": speaker
             }
             
             response = await self.client.post(

@@ -12,11 +12,14 @@ class SessionManager:
         self.sessions: Dict[str, Dict] = {}
         logger.info("SessionManager: Initialized")
     
-    def start_session(self, session_id: str, scenario: str = "default"):
+    def start_session(self, session_id: str, scenario: str = "default", speaker: str = "aidar", behavior_archetype: str = "novice", difficulty_level: str = "1"):
         """Start a new training session"""
-        logger.info(f"SessionManager: Starting session {session_id} with scenario '{scenario}'")
+        logger.info(f"SessionManager: Starting session {session_id} with scenario '{scenario}', speaker '{speaker}', behavior '{behavior_archetype}', difficulty '{difficulty_level}'")
         self.sessions[session_id] = {
             "scenario": scenario,
+            "speaker": speaker,
+            "behavior_archetype": behavior_archetype,
+            "difficulty_level": difficulty_level,
             "started_at": datetime.now().isoformat(),
             "status": "active",
             "interactions": []

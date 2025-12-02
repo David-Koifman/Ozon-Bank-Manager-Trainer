@@ -145,11 +145,52 @@ with st.sidebar:
             help="Choose a training scenario"
         )
         
+        speaker = st.selectbox(
+            "Select Speaker Voice",
+            options=["aidar", "baya", "kseniya", "xenia", "eugene"],
+            help="Choose a voice for the AI assistant",
+            index=0  # Default to aidar
+        )
+        
+        st.markdown("---")
+        st.subheader("Client Configuration")
+        
+        behavior_archetype = st.selectbox(
+            "Client Behavior Archetype",
+            options=["novice", "silent", "expert", "complainer"],
+            format_func=lambda x: {
+                "novice": "Новичок",
+                "silent": "Молчун",
+                "expert": "Эксперт",
+                "complainer": "Жалобщик"
+            }.get(x, x),
+            help="Choose the client's behavior archetype for training",
+            index=0  # Default to novice
+        )
+        
+        difficulty_level = st.selectbox(
+            "Difficulty Level",
+            options=["1", "2", "3", "4"],
+            format_func=lambda x: {
+                "1": "Базовый (1)",
+                "2": "Стандартный (2)",
+                "3": "Продвинутый (3)",
+                "4": "Экспертный (4)"
+            }.get(x, x),
+            help="Choose the difficulty level for training",
+            index=0  # Default to level 1
+        )
+        
         if st.button("Start Training Session", type="primary", use_container_width=True):
             try:
                 response = requests.post(
                     f"{API_BASE_URL}/start-training",
-                    json={"scenario": scenario},
+                    json={
+                        "scenario": scenario,
+                        "speaker": speaker,
+                        "behavior_archetype": behavior_archetype,
+                        "difficulty_level": difficulty_level
+                    },
                     timeout=30
                 )
                 if response.status_code == 200:

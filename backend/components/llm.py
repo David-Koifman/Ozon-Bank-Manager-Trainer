@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # OpenRouter API configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 # OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")  # Default model
-OPENROUTER_MODEL = "openai/gpt-oss-20b:free"  # Default model
+OPENROUTER_MODEL = "openai/gpt-4o-mini"  # Default model
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -33,7 +33,7 @@ class LLM:
                 openai_api_key=self.api_key,
                 openai_api_base=OPENROUTER_BASE_URL,
                 temperature=0.7,
-                max_tokens=250,
+                max_tokens=500,
                 timeout=30.0,
                 # default_headers={
                 #     "HTTP-Referer": "https://github.com/operator-voice-trainer",  # Optional: for analytics
@@ -48,15 +48,10 @@ class LLM:
         """
         messages = []
         
-        # Add system prompt for natural, plain text responses
-        system_prompt = (
-            "You are a helpful assistant. Respond in plain text only, without any formatting, "
-            "markdown, or special characters. Speak naturally and conversationally, as a human would. "
-            "Keep your responses concise and natural-sounding."
-        )
-        messages.append(SystemMessage(content=system_prompt))
+        # Check if context already has a system message
+        has_system_message = any(msg.get("role") == "system" for msg in context)
         
-        # Add context messages
+        # Add context messages (system messages from context will be used)
         for msg in context:
             role = msg.get("role", "user")
             content = msg.get("content", "")
@@ -67,6 +62,15 @@ class LLM:
                 messages.append(AIMessage(content=content))
             elif role == "user":
                 messages.append(HumanMessage(content=content))
+        
+        # If no system message in context, add a default one
+        if not has_system_message:
+            system_prompt = (
+                "You are a helpful assistant. Respond in plain text only, without any formatting, "
+                "markdown, or special characters. Speak naturally and conversationally, as a human would. "
+                "Keep your responses concise and natural-sounding."
+            )
+            messages.insert(0, SystemMessage(content=system_prompt))
         
         # Add current user input
         messages.append(HumanMessage(content=user_input))

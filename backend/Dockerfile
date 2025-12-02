@@ -3,17 +3,6 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Rust (required for sudachipy and other packages)
-# RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-# ENV PATH="/root/.cargo/bin:${PATH}"
-
 # Install Poetry
 RUN pip install --no-cache-dir poetry==1.7.1
 

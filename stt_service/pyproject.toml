@@ -9,12 +9,8 @@ python = ">=3.11,<3.12"
 fastapi = "^0.122.0"
 uvicorn = {extras = ["standard"], version = "^0.38.0"}
 pydantic = "^2.0.0"
-# STT dependencies
-transformers = ">=4.30.0,<4.35.0"
-torch = ">=2.0.0,<2.6.0"
-torchaudio = ">=2.0.0,<2.6.0"
-soundfile = "^0.12.1"
-librosa = "^0.10.0"
+# STT dependencies - OpenAI Whisper
+openai-whisper = {git = "https://github.com/openai/whisper.git"}
 
 [build-system]
 requires = ["poetry-core"]

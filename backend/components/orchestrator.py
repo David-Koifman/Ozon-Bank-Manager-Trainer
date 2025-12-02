@@ -36,9 +36,12 @@ class Orchestrator:
         # Handle different actions
         if action == "start_training":
             scenario = message.get("scenario", "default")
-            logger.info(f"Orchestrator: Starting training session with scenario '{scenario}'")
+            speaker = message.get("speaker", "aidar")
+            behavior_archetype = message.get("behavior_archetype", "novice")
+            difficulty_level = message.get("difficulty_level", "1")
+            logger.info(f"Orchestrator: Starting training session with scenario '{scenario}', speaker '{speaker}', behavior '{behavior_archetype}', difficulty '{difficulty_level}'")
             # Initialize session
-            session_manager.start_session(session_id, scenario)
+            session_manager.start_session(session_id, scenario, speaker, behavior_archetype, difficulty_level)
             logger.info(f"Orchestrator: Session {session_id} started")
             return {
                 "type": "session_started",
@@ -81,8 +84,10 @@ class Orchestrator:
                 await database.log_llm_response(session_id, stt_result, llm_response)
             
             # LLM -> TTS
-            logger.info("Orchestrator: Calling TTS.synthesize()")
-            audio_output = await tts.synthesize(llm_response)
+            # Get speaker from session info
+            speaker = session_info.get("speaker", "aidar") if session_info else "aidar"
+            logger.info(f"Orchestrator: Calling TTS.synthesize() with speaker '{speaker}'")
+            audio_output = await tts.synthesize(llm_response, speaker=speaker)
             logger.info(f"Orchestrator: TTS output received (length: {len(audio_output)})")
             
             # Update context with the interaction
@@ -101,6 +106,7 @@ class Orchestrator:
         elif action == "end_training":
             logger.info(f"Orchestrator: Ending training session {session_id}")
             session_manager.end_session(session_id)
+            context.clear_context(session_id)
             return {
                 "type": "session_ended",
                 "session_id": session_id,

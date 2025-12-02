@@ -4,10 +4,10 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
+# libsndfile1: required runtime library for soundfile package
+# No build-essential needed: torch and soundfile have pre-built wheels
 RUN apt-get update && apt-get install -y \
-    build-essential \
     libsndfile1 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry

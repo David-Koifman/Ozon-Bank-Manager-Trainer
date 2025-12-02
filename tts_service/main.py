@@ -31,7 +31,7 @@ tts = TTSComponent()
 class SynthesizeRequest(BaseModel):
     text: str
     language: str = "ru"  # Russian by default
-    speaker: str = "aidar"  # Options: 'aidar', 'kseniya', 'baya', 'xenia'
+    speaker: str = "aidar"  # Options: 'aidar', 'baya', 'kseniya', 'xenia', 'eugene'
 
 
 class SynthesizeResponse(BaseModel):

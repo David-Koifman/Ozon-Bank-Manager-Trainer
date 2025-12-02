@@ -72,6 +72,9 @@ async def shutdown():
 # Request/Response models
 class StartTrainingRequest(BaseModel):
     scenario: str = "default"
+    speaker: str = "aidar"  # Options: 'aidar', 'baya', 'kseniya', 'xenia', 'eugene'
+    behavior_archetype: str = "novice"  # Options: 'novice', 'silent', 'expert', 'complainer'
+    difficulty_level: str = "1"  # Options: '1', '2', '3', '4'
 
 
 class AudioInputRequest(BaseModel):
@@ -92,7 +95,10 @@ async def start_training(request: StartTrainingRequest):
         
         message = {
             "action": "start_training",
-            "scenario": request.scenario
+            "scenario": request.scenario,
+            "speaker": request.speaker,
+            "behavior_archetype": request.behavior_archetype,
+            "difficulty_level": request.difficulty_level
         }
         
         response = await orchestrator.process(
