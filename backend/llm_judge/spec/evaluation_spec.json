@@ -1,0 +1,131 @@
+{
+  "scenario_id": "ozon_rko_new_seller_v1",
+  "dynamic_criteria_selector": {
+    "rules": [
+      {
+        "condition": "client.type == 'IP' AND client.tax_system == 'USN_income' AND client.has_employees == false",
+        "include_criteria": [
+          "compliance_free_account_ip",
+          "compliance_account_docs_ip",
+          "compliance_buh_free_usn_income",
+          "objection_handling_existing",
+          "objection_handling_second_account",
+          "closing_success"
+        ]
+      },
+      {
+        "condition": "client.type == 'IP' AND client.tax_system == 'USN_income_expense'",
+        "include_criteria": [
+          "compliance_free_account_ip",
+          "compliance_account_docs_ip",
+          "objection_handling_existing",
+          "objection_handling_second_account",
+          "closing_success"
+        ]
+      },
+      {
+        "condition": "client.type == 'OOO' OR client.type == 'OAO'",
+        "include_criteria": [
+          "compliance_free_account_oao",
+          "compliance_account_docs_oao",
+          "objection_handling_existing",
+          "objection_handling_second_account",
+          "closing_success"
+        ]
+      },
+      {
+        "condition": "client.agrees_quickly == true",
+        "include_criteria": [
+          "verification_agreement_correctly_understood"
+        ]
+      }
+    ]
+  },
+  "criteria": {
+    "greeting_correct": {
+      "type": "binary",
+      "description": "Использовано правильное приветствие: «Добрый день, это [Имя] из Ozon, могу услышать [Имя клиента]?»",
+      "must_contain": ["из Ozon"],
+      "must_not_contain": ["банк"],
+      "penalty_if_false": -1
+    },
+    "congratulation_given": {
+      "type": "binary",
+      "description": "Менеджер поздравил с успешной регистрацией на Ozon",
+      "must_contain": ["поздрав"],
+      "penalty_if_false": -1
+    },
+    "compliance_free_account_ip": {
+      "type": "binary",
+      "description": "Упомянуто: «Расчетный счет от Озон Банка — бесплатный для новых продавцов»",
+      "must_contain": ["бесплатный", "расчетный счет", "новых продавцов"],
+      "penalty_if_false": -1
+    },
+    "compliance_free_account_oao": {
+      "type": "binary",
+      "description": "Упомянуто: «Расчетный счет от Озон Банка — бесплатный для новых продавцов»",
+      "must_contain": ["бесплатный", "расчетный счет", "новых продавцов"],
+      "penalty_if_false": -1
+    },
+    "compliance_account_docs_ip": {
+      "type": "binary",
+      "description": "Упомянуто: «Для открытия счета ИП нужен только оригинал паспорта РФ»",
+      "must_contain": ["ИП", "паспорт", "оригинал"],
+      "penalty_if_false": -1
+    },
+    "compliance_account_docs_oao": {
+      "type": "binary",
+      "description": "Упомянуто: «Для открытия счета ООО потребуются только данные документа подтверждающего назначение директора...»",
+      "must_contain": ["ООО", "директора", "учредителей"],
+      "penalty_if_false": -1
+    },
+    "compliance_buh_free_usn_income": {
+      "type": "binary",
+      "description": "Предложена бесплатная онлайн-бухгалтерия только если у клиента УСН Доходы и нет сотрудников",
+      "must_contain": ["бесплатная", "бухгалтерия", "УСН", "доходы"],
+      "penalty_if_false": -1
+    },
+    "objection_handling_existing": {
+      "type": "binary",
+      "description": "При возражении «Уже есть счет» заданы уточняющие вопросы о тарифах",
+      "must_contain_any": ["обслуживание", "лимит", "платежки", "сколько платите"],
+      "penalty_if_false": -1
+    },
+    "objection_handling_second": {
+      "type": "binary",
+      "description": "При возражении «Зачем второй счёт?» объяснена безопасность: «Это не замена, а дополнение...»",
+      "must_contain": ["не замена", "дополнение", "заблокируют", "не потеряете"],
+      "penalty_if_false": -1
+    },
+    "verification_agreement_correctly_understood": {
+      "type": "binary",
+      "description": "При быстром согласии уточнено: «Правильно ли вы поняли условия?»",
+      "must_contain_any": ["поняли", "условия", "цель встречи"],
+      "penalty_if_false": -1
+    },
+    "closing_success": {
+      "type": "binary",
+      "description": "Успешно завершил на встречу: уточнил город, дату и адрес",
+      "must_contain_any": ["город", "адрес", "улица", "дом", "кварт"],
+      "penalty_if_false": -1
+    },
+    "politeness": {
+      "type": "scale",
+      "min": 0,
+      "max": 2,
+      "description": "Вежливость и тон общения",
+      "rubric": {
+        "2": "Использовал «спасибо», «хорошего дня», завершил вежливо",
+        "1": "Завершил диалог, но без фраз вежливости",
+        "0": "Повысил тон, грубил, не завершил разговор"
+      }
+    }
+  },
+  "critical_errors": [
+    "must_not_contain: банк",
+    "must_not_contain: гарантируем",
+    "must_not_contain: обязательно подключите"
+  ],
+  "passing_threshold": 7,
+  "max_score": 12
+}
