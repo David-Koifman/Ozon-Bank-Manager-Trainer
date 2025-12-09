@@ -484,12 +484,12 @@ def run_file_mode(scenario_name, system_prompt, scenario, model, file_path):
 
             for ph in forbidden:
                 if ph.lower() in manager.lower():
-                    #print(f"⚠️ Запрещённая фраза: {ph}")
+                    print(f"⚠️ Запрещённая фраза: {ph}")
 
             reply, is_repeat, had_reply = generate_client_reply(system_prompt, conversation, model, last_client_reply)
 
             if not had_reply:
-                #print("⚠️ Модель не ответила.\n")
+                print("⚠️ Модель не ответила.\n")
                 continue
 
             if is_repeat:
@@ -503,7 +503,7 @@ def run_file_mode(scenario_name, system_prompt, scenario, model, file_path):
 
             turn_counter += 1
             if turn_counter >= 12:
-                #print("⚠️ Лимит ходов, диалог остановлен.")
+                print("⚠️ Лимит ходов, диалог остановлен.")
                 break
 
     return conversation
@@ -525,7 +525,7 @@ def run_dialog(
     system_prompt = build_system_prompt(scenario, md, archetype_id=archetype_id, level_id=level_id)
 
     print(f"🎙️ Сценарий: {scenario_name}")
-    print(f"👤 Архетип: {archetype_id} |   Сложность: {level_id}\n")
+    print(f"👤 Архетип: {archetype_id} | 🔢 Сложность: {level_id}\n")
 
     if mode == "script":
         conv = run_script(scenario_name)
@@ -555,7 +555,7 @@ def run_dialog(
 
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(log_payload, f, ensure_ascii=False, indent=2)
-    print(f"💾 История диалога сохранена: {save_path}")
+    print(f"История диалога сохранена: {save_path}")
 
 
 if __name__ == "__main__":
