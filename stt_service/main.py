@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 import asyncio
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -52,13 +53,22 @@ async def load_model():
 @app.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe(request: TranscribeRequest):
     """Transcribe audio to text"""
+    endpoint_start = time.time()
     try:
         logger.info(f"STT Service: Received transcription request (audio length: {len(request.audio)})")
         transcription = await stt.transcribe(request.audio)
-        logger.info(f"STT Service: Transcription completed: {transcription[:100]}...")
+        endpoint_time = time.time() - endpoint_start
+        logger.info(
+            f"STT Service: Transcription completed: {transcription[:100]}... "
+            f"(endpoint total time: {endpoint_time:.3f}s)"
+        )
         return TranscribeResponse(transcription=transcription)
     except Exception as e:
-        logger.error(f"STT Service: Error during transcription: {str(e)}", exc_info=True)
+        endpoint_time = time.time() - endpoint_start
+        logger.error(
+            f"STT Service: Error during transcription (failed after {endpoint_time:.3f}s): {str(e)}",
+            exc_info=True
+        )
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 

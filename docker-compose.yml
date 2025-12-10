@@ -63,19 +63,19 @@ services:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    container_name: operator_trainer_frontend
-    environment:
-      - API_BASE_URL=http://backend:8000/api
-    ports:
-      - "8501:8501"
-    depends_on:
-      - backend
-    volumes:
-      - ./frontend:/app
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: frontend/Dockerfile
+  #   container_name: operator_trainer_frontend
+  #   environment:
+  #     - API_BASE_URL=http://backend:8000/api
+  #   ports:
+  #     - "8501:8501"
+  #   depends_on:
+  #     - backend
+  #   volumes:
+  #     - ./frontend:/app
 
 volumes:
   postgres_data:

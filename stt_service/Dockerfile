@@ -4,8 +4,13 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
+# T-one requires build tools for kenlm compilation
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    libsndfile1 \
+    build-essential \
+    cmake \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry

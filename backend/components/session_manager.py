@@ -22,7 +22,9 @@ class SessionManager:
             "difficulty_level": difficulty_level,
             "started_at": datetime.now().isoformat(),
             "status": "active",
-            "interactions": []
+            "interactions": [],
+            "stt_transcriptions": [],  # Store transcriptions for batch database write
+            "llm_responses": []  # Store LLM responses for batch database write
         }
         logger.info(f"SessionManager: Session {session_id} started successfully")
     
@@ -52,4 +54,39 @@ class SessionManager:
             logger.info(f"SessionManager: Added interaction to session {session_id}")
         else:
             logger.warning(f"SessionManager: Cannot add interaction - session {session_id} not found")
+    
+    def add_stt_transcription(self, session_id: str, transcription: str):
+        """Add STT transcription to session (for batch database write)"""
+        if session_id in self.sessions:
+            self.sessions[session_id]["stt_transcriptions"].append(transcription)
+            logger.debug(f"SessionManager: Stored STT transcription for session {session_id} (total: {len(self.sessions[session_id]['stt_transcriptions'])})")
+        else:
+            logger.warning(f"SessionManager: Cannot add STT transcription - session {session_id} not found")
+    
+    def add_llm_response(self, session_id: str, user_input: str, response_text: str):
+        """Add LLM response to session (for batch database write)"""
+        if session_id in self.sessions:
+            self.sessions[session_id]["llm_responses"].append({
+                "user_input": user_input,
+                "response_text": response_text
+            })
+            logger.debug(f"SessionManager: Stored LLM response for session {session_id} (total: {len(self.sessions[session_id]['llm_responses'])})")
+        else:
+            logger.warning(f"SessionManager: Cannot add LLM response - session {session_id} not found")
+    
+    def get_pending_data(self, session_id: str) -> Dict:
+        """Get all pending transcriptions and responses for a session"""
+        if session_id in self.sessions:
+            return {
+                "stt_transcriptions": self.sessions[session_id].get("stt_transcriptions", []),
+                "llm_responses": self.sessions[session_id].get("llm_responses", [])
+            }
+        return {"stt_transcriptions": [], "llm_responses": []}
+    
+    def clear_pending_data(self, session_id: str):
+        """Clear pending data after writing to database"""
+        if session_id in self.sessions:
+            self.sessions[session_id]["stt_transcriptions"] = []
+            self.sessions[session_id]["llm_responses"] = []
+            logger.debug(f"SessionManager: Cleared pending data for session {session_id}")
 

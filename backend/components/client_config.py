@@ -1,7 +1,3 @@
-"""
-Client configuration with profiles, behavior presets, and difficulty levels
-"""
-
 CLIENT_CONFIG = {
     "client_profile": {
         "persona_id": "new_ozon_seller",

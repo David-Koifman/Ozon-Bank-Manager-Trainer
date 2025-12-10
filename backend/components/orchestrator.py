@@ -1,6 +1,10 @@
 from typing import Dict, Any
 import asyncio
 import logging
+import time
+from fastapi import WebSocket
+from components.utils import extract_complete_sentences
+from components.dialogue_prompts import clean_reply
 
 logger = logging.getLogger(__name__)
 
@@ -49,62 +53,32 @@ class Orchestrator:
                 "message": "Training session started"
             }
         
-        elif action == "audio_input":
-            # Process audio through the pipeline (echo mode)
-            audio_data = message.get("audio", "")
-            logger.info(f"Orchestrator: Processing audio input (audio_data length: {len(audio_data)})")
-            
-            # Parallel processing: Session Manager and STT
-            logger.info("Orchestrator: Getting session info from Session Manager")
-            session_info = session_manager.get_session(session_id)
-            
-            logger.info("Orchestrator: Calling STT.transcribe()")
-            stt_result = await stt.transcribe(audio_data)
-            logger.info(f"Orchestrator: STT result: {stt_result[:50]}...")
-            
-            # Log STT transcription to database
-            if database:
-                await database.log_stt_transcription(session_id, stt_result)
-            
-            # Session Manager -> Context
-            logger.info("Orchestrator: Getting context from Context component")
-            context_data = context.get_context(session_id, session_info)
-            logger.info(f"Orchestrator: Context retrieved (length: {len(context_data)})")
-            
-            # STT + Context -> LLM
-            logger.info("Orchestrator: Calling LLM.generate_response()")
-            llm_response = await llm.generate_response(
-                user_input=stt_result,
-                context=context_data
-            )
-            logger.info(f"Orchestrator: LLM response received: {llm_response[:50]}...")
-            
-            # Log LLM response to database
-            if database:
-                await database.log_llm_response(session_id, stt_result, llm_response)
-            
-            # LLM -> TTS
-            # Get speaker from session info
-            speaker = session_info.get("speaker", "aidar") if session_info else "aidar"
-            logger.info(f"Orchestrator: Calling TTS.synthesize() with speaker '{speaker}'")
-            audio_output = await tts.synthesize(llm_response, speaker=speaker)
-            logger.info(f"Orchestrator: TTS output received (length: {len(audio_output)})")
-            
-            # Update context with the interaction
-            logger.info("Orchestrator: Updating context with interaction")
-            context.update_context(session_id, stt_result, llm_response)
-            
-            logger.info("Orchestrator: Returning audio_response")
-            return {
-                "type": "audio_response",
-                "transcription": stt_result,
-                "response_text": llm_response,
-                "audio": audio_output,
-                "session_id": session_id
-            }
-        
         elif action == "end_training":
             logger.info(f"Orchestrator: Ending training session {session_id}")
+            
+            # Get all pending data from session
+            pending_data = session_manager.get_pending_data(session_id)
+            stt_transcriptions = pending_data["stt_transcriptions"]
+            llm_responses = pending_data["llm_responses"]
+            
+            # Write all data to database
+            if database and (stt_transcriptions or llm_responses):
+                db_start = time.time()
+                try:
+                    await database.batch_log_session_data(
+                        session_id=session_id,
+                        stt_transcriptions=stt_transcriptions,
+                        llm_responses=llm_responses
+                    )
+                    db_time = time.time() - db_start
+                    logger.info(f"Orchestrator: Wrote {len(stt_transcriptions)} STT and {len(llm_responses)} LLM records to database in {db_time:.3f}s")
+                except Exception as e:
+                    logger.error(f"Orchestrator: Error writing session data to database: {e}", exc_info=True)
+            
+            # Clear pending data
+            session_manager.clear_pending_data(session_id)
+            
+            # End session and clear context
             session_manager.end_session(session_id)
             context.clear_context(session_id)
             return {
@@ -119,4 +93,185 @@ class Orchestrator:
                 "type": "error",
                 "message": f"Unknown action: {action}"
             }
+    
+    async def process_streaming(
+        self,
+        websocket: WebSocket,
+        session_id: str,
+        session_info: dict,
+        audio_base64: str,
+        speaker: str,
+        stt,
+        llm,
+        tts,
+        context,
+        session_manager,
+        database=None
+    ):
+        """
+        Process a complete user utterance in streaming mode: 
+        STT -> LLM (streaming) -> TTS (streaming) -> Stream to client.
+        
+        Args:
+            websocket: WebSocket connection
+            session_id: Session ID
+            session_info: Session information
+            audio_base64: Base64 encoded audio
+            speaker: TTS speaker voice
+            stt: STT client
+            llm: LLM client
+            tts: TTS client
+            context: Context manager
+            session_manager: Session manager (to store data for batch write)
+            database: Database client
+        """
+        overall_start = time.time()
+        try:
+            # 1. Transcribe with STT
+            stt_start = time.time()
+            logger.info("Orchestrator: Transcribing audio...")
+            transcription = await stt.transcribe(audio_base64)
+            stt_time = time.time() - stt_start
+            logger.info(f"Orchestrator: Transcription: {transcription} (STT time: {stt_time:.3f}s)")
+            
+            # Store STT transcription in session (for batch database write on end_training)
+            session_manager.add_stt_transcription(session_id, transcription)
+            
+            # Send transcription to client (for UI display)
+            await websocket.send_json({
+                "type": "transcription",
+                "text": transcription
+            })
+            
+            # 2. Get context
+            context_start = time.time()
+            context_data = context.get_context(session_id, session_info)
+            context_time = time.time() - context_start
+            logger.info(f"Orchestrator: Context retrieved (time: {context_time:.3f}s)")
+            
+            # 3. Generate LLM response (streaming)
+            llm_start = time.time()
+            logger.info("Orchestrator: Generating LLM response (streaming)...")
+            await websocket.send_json({
+                "type": "status",
+                "status": "responding",
+                "message": "AI is responding..."
+            })
+            
+            # Collect full response for context update
+            raw_response = ""
+            sentence_buffer = ""
+            processed_sentences = set()
+            tts_total_time = 0.0
+            tts_count = 0
+            
+            async for text_chunk in llm.generate_response_stream(
+                user_input=transcription,
+                context=context_data
+            ):
+                raw_response += text_chunk
+                sentence_buffer += text_chunk
+                
+                # Check if we have complete sentences
+                complete_sentences, remaining = extract_complete_sentences(sentence_buffer)
+                
+                # Process complete sentences
+                for sentence in complete_sentences:
+                    if sentence and sentence not in processed_sentences:
+                        # Synthesize and send audio for this sentence
+                        try:
+                            tts_start = time.time()
+                            audio_base64_chunk = await tts.synthesize(
+                                text=sentence,
+                                speaker=speaker
+                            )
+                            tts_time = time.time() - tts_start
+                            tts_total_time += tts_time
+                            tts_count += 1
+                            
+                            # Send audio chunk to client
+                            await websocket.send_json({
+                                "type": "audio_chunk",
+                                "data": audio_base64_chunk,
+                                "text": sentence  # Optional: include text for UI
+                            })
+                            
+                            processed_sentences.add(sentence)
+                            logger.debug(f"Orchestrator: Sent audio chunk for sentence: {sentence[:50]}... (TTS time: {tts_time:.3f}s)")
+                        except Exception as e:
+                            logger.error(f"Orchestrator: Error synthesizing sentence '{sentence}': {e}", exc_info=True)
+                
+                # Update buffer with remaining text
+                sentence_buffer = remaining
+            
+            llm_time = time.time() - llm_start
+            
+            # Process remaining sentence buffer (final incomplete sentence)
+            if sentence_buffer.strip():
+                if sentence_buffer.strip() not in processed_sentences:
+                    try:
+                        tts_start = time.time()
+                        audio_base64_chunk = await tts.synthesize(
+                            text=sentence_buffer.strip(),
+                            speaker=speaker
+                        )
+                        tts_time = time.time() - tts_start
+                        tts_total_time += tts_time
+                        tts_count += 1
+                        await websocket.send_json({
+                            "type": "audio_chunk",
+                            "data": audio_base64_chunk,
+                            "text": sentence_buffer.strip()
+                        })
+                    except Exception as e:
+                        logger.error(f"Orchestrator: Error synthesizing final sentence: {e}", exc_info=True)
+            
+            # Clean the full response using dialogue_prompts.clean_reply
+            clean_start = time.time()
+            full_response = clean_reply(raw_response)
+            clean_time = time.time() - clean_start
+            logger.info(f"Orchestrator: Cleaned response (raw length: {len(raw_response)}, cleaned length: {len(full_response)}, clean time: {clean_time:.3f}s)")
+            
+            # Store LLM response in session (for batch database write on end_training)
+            session_manager.add_llm_response(session_id, transcription, full_response)
+            
+            # 5. Update context
+            context_update_start = time.time()
+            context.update_context(session_id, transcription, full_response)
+            context_update_time = time.time() - context_update_start
+            logger.info(f"Orchestrator: Context updated (time: {context_update_time:.3f}s)")
+            
+            # 6. Send completion
+            await websocket.send_json({
+                "type": "response_complete",
+                "transcription": transcription,
+                "response_text": full_response
+            })
+            
+            overall_time = time.time() - overall_start
+            logger.info(
+                f"Orchestrator: Utterance processing complete - "
+                f"STT: {stt_time:.3f}s, "
+                f"Context: {context_time:.3f}s, "
+                f"LLM: {llm_time:.3f}s, "
+                f"TTS: {tts_total_time:.3f}s ({tts_count} chunks, avg: {tts_total_time/tts_count if tts_count > 0 else 0:.3f}s), "
+                f"Clean: {clean_time:.3f}s, "
+                f"Context Update: {context_update_time:.3f}s, "
+                f"Total: {overall_time:.3f}s"
+            )
+        
+        except Exception as e:
+            overall_time = time.time() - overall_start
+            logger.error(f"Orchestrator: Error processing utterance (failed after {overall_time:.3f}s): {e}", exc_info=True)
+            try:
+                # Check if WebSocket is still connected before sending error
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Error processing utterance: {str(e)}"
+                    })
+                except (RuntimeError, ConnectionError) as ws_error:
+                    logger.warning(f"Orchestrator: Could not send error message to client (WebSocket disconnected): {ws_error}")
+            except Exception as send_error:
+                logger.warning(f"Orchestrator: Error sending error message to client: {send_error}")
 

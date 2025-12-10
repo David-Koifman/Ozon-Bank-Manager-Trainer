@@ -9,8 +9,16 @@ python = ">=3.11,<3.12"
 fastapi = "^0.122.0"
 uvicorn = {extras = ["standard"], version = "^0.38.0"}
 pydantic = "^2.0.0"
-# STT dependencies - OpenAI Whisper
-openai-whisper = {git = "https://github.com/openai/whisper.git"}
+# STT dependencies - T-one (T-Tech streaming ASR for Russian)
+# Install from GitHub repository
+tone = {git = "https://github.com/voicekit-team/T-one.git"}
+torch = "^2.0.0"
+torchaudio = "^2.0.0"
+transformers = "^4.30.0"
+librosa = "^0.10.0"
+soundfile = "^0.12.0"
+# miniaudio is required for T-one's read_audio function
+miniaudio = "^1.60"
 
 [build-system]
 requires = ["poetry-core"]

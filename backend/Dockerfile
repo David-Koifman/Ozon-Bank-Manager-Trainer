@@ -3,6 +3,13 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# Install build dependencies for webrtcvad (C extension)
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Poetry
 RUN pip install --no-cache-dir poetry==1.7.1
 

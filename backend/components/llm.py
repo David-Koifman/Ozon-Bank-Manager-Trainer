@@ -3,6 +3,7 @@ import logging
 import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from .dialogue_prompts import make_prompt, clean_reply
 
 logger = logging.getLogger(__name__)
 
@@ -35,78 +36,97 @@ class LLM:
                 temperature=0.7,
                 max_tokens=500,
                 timeout=30.0,
-                # default_headers={
-                #     "HTTP-Referer": "https://github.com/operator-voice-trainer",  # Optional: for analytics
-                #     "X-Title": "Operator Voice Trainer"  # Optional: for analytics
-                # }
             )
             logger.info(f"LLM: Initialized with model {self.model}")
     
-    def _convert_messages(self, context: List[Dict[str, str]], user_input: str) -> List:
+    def _build_prompt_from_context(self, context: Dict, user_input: str) -> str:
         """
-        Convert context and user input to LangChain message format
-        """
-        messages = []
+        Build full prompt using dialogue_prompts.make_prompt logic.
         
-        # Check if context already has a system message
-        has_system_message = any(msg.get("role") == "system" for msg in context)
-        
-        # Add context messages (system messages from context will be used)
-        for msg in context:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
+        Args:
+            context: Dict with 'system_prompt' and 'conversation' keys
+            user_input: Current manager input
             
-            if role == "system":
-                messages.append(SystemMessage(content=content))
-            elif role == "assistant":
-                messages.append(AIMessage(content=content))
-            elif role == "user":
-                messages.append(HumanMessage(content=content))
+        Returns:
+            Full prompt string for the model
+        """
+        system_prompt = context.get("system_prompt", "")
+        conversation = context.get("conversation", [])
         
-        # If no system message in context, add a default one
-        if not has_system_message:
-            system_prompt = (
-                "You are a helpful assistant. Respond in plain text only, without any formatting, "
-                "markdown, or special characters. Speak naturally and conversationally, as a human would. "
-                "Keep your responses concise and natural-sounding."
-            )
-            messages.insert(0, SystemMessage(content=system_prompt))
+        # Add current manager input to conversation for prompt building
+        # (it will be included in the prompt but not yet in conversation history)
+        temp_conversation = conversation + [{"role": "manager", "text": user_input}]
         
-        # Add current user input
-        messages.append(HumanMessage(content=user_input))
+        # Build full prompt using make_prompt
+        full_prompt = make_prompt(system_prompt, temp_conversation)
         
+        return full_prompt
+    
+    def _convert_messages(self, prompt: str) -> List:
+        """
+        Convert prompt string to LangChain message format.
+        Uses a single user message with the full prompt.
+        """
+        # For OpenRouter, we send the full prompt as a single user message
+        # The system prompt is already included in the prompt text
+        messages = [HumanMessage(content=prompt)]
         return messages
     
-    async def generate_response(
+    async def generate_response_stream(
         self,
         user_input: str,
-        context: List[Dict[str, str]]
-    ) -> str:
+        context: Dict
+    ):
         """
-        Generate response using LangChain with OpenRouter API
+        Generate streaming response using LangChain with OpenRouter API.
+        Yields tokens as they are generated.
+        
+        Args:
+            user_input: Manager's input text
+            context: Dict with 'system_prompt' and 'conversation' keys
+            
+        Yields:
+            str: Text chunks as they are generated (will be cleaned with clean_reply)
         """
         if not self.api_key:
             logger.warning("LLM: API key not set, returning fallback response")
-            return "I'm sorry, but the language model is not configured. Please set OPENROUTER_API_KEY environment variable."
+            yield "Извините, языковая модель не настроена."
+            return
         
         if not self.llm:
             logger.error("LLM: LangChain model not initialized")
-            return "I'm sorry, the language model is not properly initialized."
+            yield "Извините, языковая модель не инициализирована."
+            return
         
-        logger.info(f"LLM: Generating response (user_input: {user_input[:50]}..., context length: {len(context)})")
+        logger.info(f"LLM: Generating streaming response (user_input: {user_input[:50]}..., conversation turns: {len(context.get('conversation', []))})")
         
         try:
-            # Convert messages to LangChain format
-            messages = self._convert_messages(context, user_input)
+            # Build full prompt using dialogue_prompts logic
+            full_prompt = self._build_prompt_from_context(context, user_input)
             
-            # Invoke the LLM
-            response = await self.llm.ainvoke(messages)
+            # Convert to LangChain message format
+            messages = self._convert_messages(full_prompt)
             
-            # Extract response text
-            response_text = response.content
-            logger.info(f"LLM: Generated response: {response_text[:100]}...")
-            return response_text
+            # Stream the LLM response
+            raw_response = ""
+            async for chunk in self.llm.astream(messages):
+                if chunk.content:
+                    raw_response += chunk.content
+                    # Yield chunks as they come (will be cleaned later)
+                    yield chunk.content
         
         except Exception as e:
-            logger.error(f"LLM: Error generating response: {str(e)}", exc_info=True)
-            return "I'm sorry, an error occurred while generating the response."
+            logger.error(f"LLM: Error generating streaming response: {str(e)}", exc_info=True)
+            yield "Извините, произошла ошибка при генерации ответа."
+    
+    def clean_response(self, raw_response: str) -> str:
+        """
+        Clean LLM response using dialogue_prompts.clean_reply.
+        
+        Args:
+            raw_response: Raw response from LLM
+            
+        Returns:
+            Cleaned response
+        """
+        return clean_reply(raw_response)

@@ -125,4 +125,56 @@ class Database:
                 logger.info(f"Database: Logged LLM response for session {session_id}")
         except Exception as e:
             logger.error(f"Database: Error logging LLM response: {str(e)}", exc_info=True)
+    
+    async def batch_log_session_data(self, session_id: str, stt_transcriptions: list, llm_responses: list):
+        """Batch log all STT transcriptions and LLM responses for a session"""
+        if not self._initialized:
+            logger.warning("Database: Not initialized, skipping batch log")
+            return
+        
+        import time
+        start_time = time.time()
+        
+        try:
+            async with self.async_session() as session:
+                # Log all STT transcriptions
+                stt_start = time.time()
+                for transcription in stt_transcriptions:
+                    stt_record = STTTranscription(
+                        session_id=session_id,
+                        transcription=transcription,
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(stt_record)
+                
+                # Log all LLM responses
+                llm_start = time.time()
+                for response in llm_responses:
+                    llm_record = LLMResponse(
+                        session_id=session_id,
+                        user_input=response["user_input"],
+                        response_text=response["response_text"],
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(llm_record)
+                
+                # Commit all records at once
+                commit_start = time.time()
+                await session.commit()
+                commit_time = time.time() - commit_start
+                
+                total_time = time.time() - start_time
+                stt_time = llm_start - stt_start
+                llm_time = commit_start - llm_start
+                
+                logger.info(
+                    f"Database: Batch logged session {session_id} - "
+                    f"STT: {len(stt_transcriptions)} records ({stt_time:.3f}s), "
+                    f"LLM: {len(llm_responses)} records ({llm_time:.3f}s), "
+                    f"Commit: {commit_time:.3f}s, "
+                    f"Total: {total_time:.3f}s"
+                )
+        except Exception as e:
+            logger.error(f"Database: Error batch logging session data: {str(e)}", exc_info=True)
+            raise
 
