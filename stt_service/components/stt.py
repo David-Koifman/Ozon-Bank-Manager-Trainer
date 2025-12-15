@@ -32,9 +32,11 @@ class STT:
         if self._initialized:
             return
         
-        logger.info("STT: Loading T-one model from Hugging Face (this may take a minute)...")
+        logger.info("STT: Loading T-one model from local...")
         try:
-            self.pipeline = StreamingCTCPipeline.from_hugging_face()
+            local_dir = "./tone_models"
+            self.pipeline = StreamingCTCPipeline.from_local(local_dir)
+            # self.pipeline = StreamingCTCPipeline.from_hugging_face()
             self._initialized = True
             logger.info("STT: T-one model loaded successfully")
         except Exception as e:
