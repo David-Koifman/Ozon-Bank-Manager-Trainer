@@ -10,6 +10,7 @@ function App() {
   const [callActive, setCallActive] = useState(false)
   const [callStatus, setCallStatus] = useState('idle')
   const [conversationHistory, setConversationHistory] = useState([])
+  const [partialTranscription, setPartialTranscription] = useState('')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   
@@ -295,8 +296,14 @@ function App() {
       case 'status':
         setCallStatus(message.status)
         break
+      case 'partial_transcription':
+        // Update partial transcription (for real-time display)
+        setPartialTranscription(message.text)
+        break
       case 'transcription':
+        // Final transcription received - add to conversation and clear partial
         addMessage('user', message.text)
+        setPartialTranscription('')
         break
       case 'audio_chunk':
         addMessage('assistant', message.text || '', message.data)
@@ -447,23 +454,38 @@ function App() {
 
             {/* Chat container */}
             <div className="chat-container">
-              {conversationHistory.length === 0 ? (
+              {conversationHistory.length === 0 && !partialTranscription ? (
                 <div className="loading">
                   💡 Start a conversation by clicking "Start Call" and speaking.
                 </div>
               ) : (
-                conversationHistory.map((msg, idx) => (
-                  <div key={idx} className={`message ${msg.type}`}>
-                    <div>
-                      <div className="message-bubble">
-                        {msg.text}
-                      </div>
-                      <div className="message-time">
-                        {msg.timestamp.toLocaleTimeString()}
+                <>
+                  {conversationHistory.map((msg, idx) => (
+                    <div key={idx} className={`message ${msg.type}`}>
+                      <div>
+                        <div className="message-bubble">
+                          {msg.text}
+                        </div>
+                        <div className="message-time">
+                          {msg.timestamp.toLocaleTimeString()}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                  {/* Display partial transcription in real-time */}
+                  {partialTranscription && (
+                    <div className="message user">
+                      <div>
+                        <div className="message-bubble partial-transcription">
+                          {partialTranscription}
+                        </div>
+                        <div className="message-time">
+                          Speaking...
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

@@ -99,13 +99,14 @@ class Orchestrator:
         websocket: WebSocket,
         session_id: str,
         session_info: dict,
-        audio_base64: str,
-        speaker: str,
-        stt,
-        llm,
-        tts,
-        context,
-        session_manager,
+        audio_base64: str = None,
+        transcription: str = None,
+        speaker: str = None,
+        stt=None,
+        llm=None,
+        tts=None,
+        context=None,
+        session_manager=None,
         database=None
     ):
         """
@@ -116,7 +117,8 @@ class Orchestrator:
             websocket: WebSocket connection
             session_id: Session ID
             session_info: Session information
-            audio_base64: Base64 encoded audio
+            audio_base64: Base64 encoded audio (optional, if transcription is provided)
+            transcription: Pre-transcribed text (optional, if provided, skips STT step)
             speaker: TTS speaker voice
             stt: STT client
             llm: LLM client
@@ -127,21 +129,29 @@ class Orchestrator:
         """
         overall_start = time.time()
         try:
-            # 1. Transcribe with STT
+            # 1. Transcribe with STT (or use provided transcription)
             stt_start = time.time()
-            logger.info("Orchestrator: Transcribing audio...")
-            transcription = await stt.transcribe(audio_base64)
-            stt_time = time.time() - stt_start
-            logger.info(f"Orchestrator: Transcription: {transcription} (STT time: {stt_time:.3f}s)")
+            stt_time = 0.0  # Initialize STT time
+            
+            if transcription is not None:
+                # Use provided transcription (from streaming STT)
+                logger.info("Orchestrator: Using provided transcription (streaming STT)")
+                stt_time = 0.0  # No STT processing time (already done in streaming)
+            elif audio_base64 is not None and stt is not None:
+                # Transcribe with STT (non-streaming mode)
+                logger.info("Orchestrator: Transcribing audio...")
+                transcription = await stt.transcribe(audio_base64)
+                stt_time = time.time() - stt_start
+                logger.info(f"Orchestrator: Transcription: {transcription} (STT time: {stt_time:.3f}s)")
+            else:
+                raise ValueError("Either transcription or audio_base64 must be provided")
             
             # Store STT transcription in session (for batch database write on end_training)
             session_manager.add_stt_transcription(session_id, transcription)
             
-            # Send transcription to client (for UI display)
-            await websocket.send_json({
-                "type": "transcription",
-                "text": transcription
-            })
+            # Note: Transcription is already sent to client in WebSocket handler
+            # (for streaming STT) or here (for non-streaming STT)
+            # So we don't send it again to avoid duplicates
             
             # 2. Get context
             context_start = time.time()

@@ -67,6 +67,121 @@ class STTClient:
             logger.error(f"STTClient: Error during transcription (failed after {overall_time:.3f}s): {str(e)}", exc_info=True)
             raise
     
+    async def start_stream(self, session_id: str):
+        """
+        Start a new streaming STT session
+        
+        Args:
+            session_id: Unique session identifier
+        """
+        try:
+            logger.debug(f"STTClient: Starting stream for session {session_id}")
+            response = await self.client.post(
+                f"{self.service_url}/stream/start",
+                json={"session_id": session_id}
+            )
+            response.raise_for_status()
+            logger.debug(f"STTClient: Stream started for session {session_id}")
+        except httpx.HTTPError as e:
+            logger.error(f"STTClient: HTTP error starting stream {session_id}: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"STTClient: Error starting stream {session_id}: {str(e)}", exc_info=True)
+            raise
+    
+    async def process_chunk(self, session_id: str, audio_chunk_base64: str) -> str:
+        """
+        Process an audio chunk and return partial transcription
+        
+        Args:
+            session_id: Session identifier
+            audio_chunk_base64: Base64 encoded audio chunk
+            
+        Returns:
+            Partial transcription text
+        """
+        try:
+            logger.debug(
+                f"STTClient: Processing chunk for session {session_id} "
+                f"(audio length: {len(audio_chunk_base64)})"
+            )
+            response = await self.client.post(
+                f"{self.service_url}/stream/chunk",
+                json={
+                    "session_id": session_id,
+                    "audio_chunk": audio_chunk_base64
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            partial_transcription = result.get("partial_transcription", "")
+            
+            logger.debug(
+                f"STTClient: Received partial transcription for session {session_id}: "
+                f"'{partial_transcription[:50]}...'"
+            )
+            return partial_transcription
+        except httpx.HTTPError as e:
+            logger.error(f"STTClient: HTTP error processing chunk for session {session_id}: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"STTClient: Error processing chunk for session {session_id}: {str(e)}", exc_info=True)
+            raise
+    
+    async def finalize_stream(self, session_id: str) -> str:
+        """
+        Finalize a streaming session and return complete transcription
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Final transcription text
+        """
+        try:
+            logger.info(f"STTClient: Finalizing stream for session {session_id}")
+            response = await self.client.post(
+                f"{self.service_url}/stream/finalize",
+                json={"session_id": session_id}
+            )
+            response.raise_for_status()
+            result = response.json()
+            final_transcription = result.get("final_transcription", "")
+            
+            logger.info(
+                f"STTClient: Received final transcription for session {session_id}: "
+                f"'{final_transcription[:100]}...'"
+            )
+            return final_transcription
+        except httpx.HTTPError as e:
+            logger.error(f"STTClient: HTTP error finalizing stream {session_id}: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"STTClient: Error finalizing stream {session_id}: {str(e)}", exc_info=True)
+            raise
+    
+    async def reset_stream(self, session_id: str):
+        """
+        Reset/cleanup a streaming session
+        
+        Args:
+            session_id: Session identifier
+        """
+        try:
+            logger.debug(f"STTClient: Resetting stream for session {session_id}")
+            response = await self.client.post(
+                f"{self.service_url}/stream/reset",
+                json={"session_id": session_id}
+            )
+            response.raise_for_status()
+            logger.debug(f"STTClient: Stream reset for session {session_id}")
+        except httpx.HTTPError as e:
+            logger.warning(f"STTClient: HTTP error resetting stream {session_id}: {str(e)}")
+            # Don't raise - reset is best effort cleanup
+        except Exception as e:
+            logger.warning(f"STTClient: Error resetting stream {session_id}: {str(e)}")
+            # Don't raise - reset is best effort cleanup
+    
     async def close(self):
         """Close the HTTP client"""
         await self.client.aclose()

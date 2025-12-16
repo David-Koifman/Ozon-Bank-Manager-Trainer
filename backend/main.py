@@ -214,6 +214,20 @@ async def websocket_call(websocket: WebSocket, session_id: str):
     
     speaker = session_info.get("speaker", "aidar")
     
+    # Start STT streaming session
+    try:
+        await stt.start_stream(session_id)
+        logger.info(f"STT streaming session started for {session_id}")
+    except Exception as e:
+        logger.error(f"Failed to start STT stream for {session_id}: {e}", exc_info=True)
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Failed to start STT stream: {str(e)}"
+        })
+        await websocket.close()
+        active_websocket_connections.discard(websocket)
+        return
+    
     # Send connection confirmation
     await websocket.send_json({
         "type": "connected",
@@ -258,7 +272,31 @@ async def websocket_call(websocket: WebSocket, session_id: str):
                     logger.error(f"Error decoding audio chunk: {e}")
                     continue
                 
-                # VAD processes chunk and returns speech segment if speech ended
+                # Convert PCM chunk to WAV format for STT service
+                # We send chunks to STT in real-time for streaming transcription
+                wav_chunk = pcm_to_wav(
+                    pcm_bytes=audio_chunk_bytes,
+                    sample_rate=16000,  # Match VAD sample rate
+                    channels=1,  # Mono
+                    sample_width=2  # 16-bit
+                )
+                audio_chunk_base64 = base64.b64encode(wav_chunk).decode('utf-8')
+                
+                # Send chunk to STT service for streaming transcription
+                try:
+                    partial_transcription = await stt.process_chunk(session_id, audio_chunk_base64)
+                    
+                    # Send partial transcription to frontend (for real-time display)
+                    if partial_transcription:
+                        await websocket.send_json({
+                            "type": "partial_transcription",
+                            "text": partial_transcription
+                        })
+                except Exception as e:
+                    logger.error(f"Error processing chunk with STT: {e}", exc_info=True)
+                    # Continue processing - don't break the connection
+                
+                # Also process with VAD (for end-of-speech detection)
                 speech_segment = vad.process_chunk(audio_chunk_bytes)
                 
                 # Log VAD state for debugging
@@ -271,9 +309,9 @@ async def websocket_call(websocket: WebSocket, session_id: str):
                     )
                 
                 if speech_segment:
-                    # User has finished speaking!
+                    # VAD detected end of speech!
                     logger.info(
-                        f"Speech ended for session {session_id}, processing utterance: "
+                        f"Speech ended for session {session_id}, finalizing transcription: "
                         f"{len(speech_segment)} chunks"
                     )
                     
@@ -284,63 +322,83 @@ async def websocket_call(websocket: WebSocket, session_id: str):
                         "message": "Processing your speech..."
                     })
                     
-                    # Convert speech segments to audio bytes
-                    # VAD returns raw PCM chunks, we need to convert to WAV format
-                    pcm_bytes = b''.join(speech_segment)
-                    
-                    # Convert PCM to WAV format (STT service expects WAV)
-                    wav_bytes = pcm_to_wav(
-                        pcm_bytes=pcm_bytes,
-                        sample_rate=16000,  # Match VAD sample rate
-                        channels=1,  # Mono
-                        sample_width=2  # 16-bit
-                    )
-                    
-                    audio_base64 = base64.b64encode(wav_bytes).decode('utf-8')
-                    
-                    # Process the complete utterance using Orchestrator
-                    await orchestrator.process_streaming(
-                        websocket=websocket,
-                        session_id=session_id,
-                        session_info=session_info,
-                        audio_base64=audio_base64,
-                        speaker=speaker,
-                        stt=stt,
-                        llm=llm,
-                        tts=tts,
-                        context=context,
-                        session_manager=session_manager,
-                        database=database
-                    )
+                    # Finalize STT stream and get final transcription
+                    try:
+                        final_transcription = await stt.finalize_stream(session_id)
+                        
+                        # Send final transcription to frontend
+                        await websocket.send_json({
+                            "type": "transcription",
+                            "text": final_transcription
+                        })
+                        
+                        # Reset STT stream for next utterance
+                        await stt.reset_stream(session_id)
+                        await stt.start_stream(session_id)
+                        
+                        # Process the complete utterance using Orchestrator
+                        # Pass transcription directly (skip STT step in orchestrator)
+                        await orchestrator.process_streaming(
+                            websocket=websocket,
+                            session_id=session_id,
+                            session_info=session_info,
+                            transcription=final_transcription,  # Pass transcription directly
+                            speaker=speaker,
+                            stt=stt,  # Still pass stt for compatibility, but won't be used
+                            llm=llm,
+                            tts=tts,
+                            context=context,
+                            session_manager=session_manager,
+                            database=database
+                        )
+                    except Exception as e:
+                        logger.error(f"Error finalizing STT stream: {e}", exc_info=True)
+                        # Try to reset stream even if finalization failed
+                        try:
+                            await stt.reset_stream(session_id)
+                            await stt.start_stream(session_id)
+                        except:
+                            pass
+                        
+                        # Send error to client
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Error processing speech: {str(e)}"
+                        })
             
             elif message_type == "end_call":
                 logger.info(f"End call requested for session {session_id}")
                 
-                # Flush any remaining speech
-                final_segment = vad.flush()
-                if final_segment:
-                    logger.info("Processing final utterance before ending call")
-                    pcm_bytes = b''.join(final_segment)
-                    wav_bytes = pcm_to_wav(
-                        pcm_bytes=pcm_bytes,
-                        sample_rate=16000,
-                        channels=1,
-                        sample_width=2
-                    )
-                    audio_base64 = base64.b64encode(wav_bytes).decode('utf-8')
-                    await orchestrator.process_streaming(
-                        websocket=websocket,
-                        session_id=session_id,
-                        session_info=session_info,
-                        audio_base64=audio_base64,
-                        speaker=speaker,
-                        stt=stt,
-                        llm=llm,
-                        tts=tts,
-                        context=context,
-                        session_manager=session_manager,
-                        database=database
-                    )
+                # Finalize STT stream if there's any remaining speech
+                try:
+                    final_transcription = await stt.finalize_stream(session_id)
+                    if final_transcription:
+                        logger.info("Processing final utterance before ending call")
+                        await websocket.send_json({
+                            "type": "transcription",
+                            "text": final_transcription
+                        })
+                        await orchestrator.process_streaming(
+                            websocket=websocket,
+                            session_id=session_id,
+                            session_info=session_info,
+                            transcription=final_transcription,
+                            speaker=speaker,
+                            stt=stt,
+                            llm=llm,
+                            tts=tts,
+                            context=context,
+                            session_manager=session_manager,
+                            database=database
+                        )
+                except Exception as e:
+                    logger.error(f"Error finalizing STT stream on end_call: {e}", exc_info=True)
+                
+                # Reset STT stream
+                try:
+                    await stt.reset_stream(session_id)
+                except:
+                    pass
                 
                 await websocket.send_json({
                     "type": "call_ended",
@@ -382,32 +440,37 @@ async def websocket_call(websocket: WebSocket, session_id: str):
         # Cleanup
         active_websocket_connections.discard(websocket)
         
-        # Flush any remaining speech
-        final_segment = vad.flush()
-        if final_segment:
-            logger.info("Processing final utterance on disconnect")
-            pcm_bytes = b''.join(final_segment)
-            wav_bytes = pcm_to_wav(
-                pcm_bytes=pcm_bytes,
-                sample_rate=16000,
-                channels=1,
-                sample_width=2
-            )
-            audio_base64 = base64.b64encode(wav_bytes).decode('utf-8')
-            try:
-                await orchestrator.process_streaming(
-                    websocket=websocket,
-                    session_id=session_id,
-                    session_info=session_info,
-                    audio_base64=audio_base64,
-                    speaker=speaker,
-                    stt=stt,
-                    llm=llm,
-                    tts=tts,
-                    context=context,
-                    session_manager=session_manager,
-                    database=database
-                )
-            except:
-                pass  # Connection already closed
+        # Finalize and reset STT stream
+        try:
+            final_transcription = await stt.finalize_stream(session_id)
+            if final_transcription:
+                logger.info("Processing final utterance on disconnect")
+                try:
+                    await websocket.send_json({
+                        "type": "transcription",
+                        "text": final_transcription
+                    })
+                    await orchestrator.process_streaming(
+                        websocket=websocket,
+                        session_id=session_id,
+                        session_info=session_info,
+                        transcription=final_transcription,
+                        speaker=speaker,
+                        stt=stt,
+                        llm=llm,
+                        tts=tts,
+                        context=context,
+                        session_manager=session_manager,
+                        database=database
+                    )
+                except:
+                    pass  # Connection already closed
+        except Exception as e:
+            logger.warning(f"Error finalizing STT stream on disconnect: {e}")
+        
+        # Reset STT stream
+        try:
+            await stt.reset_stream(session_id)
+        except:
+            pass
 

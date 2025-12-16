@@ -1,2 +1,10 @@
 /* Additional component-specific styles if needed */
 
+/* Partial transcription styling - shows real-time transcription in progress */
+.partial-transcription {
+  opacity: 0.7;
+  font-style: italic;
+  color: #666;
+  border-style: dashed;
+}
+
