@@ -1,8 +1,6 @@
 from typing import Dict, List, Optional
 import logging
-from .client_config import CLIENT_CONFIG
 from .dialogue_prompts import (
-    load_scenario,
     build_system_prompt,
     make_prompt
 )
@@ -18,46 +16,23 @@ class Context:
         self.conversations: Dict[str, List[Dict[str, str]]] = {}
         # Store system prompts per session
         self.system_prompts: Dict[str, str] = {}
-        # Store loaded scenarios per session
-        self.scenarios: Dict[str, Dict] = {}
         logger.info("Context: Initialized")
     
-    def _load_and_build_system_prompt(self, session_info: Optional[Dict]) -> str:
-        """Load scenario and build system prompt using dialogue_prompts logic"""
+    def _build_system_prompt(self, session_info: Optional[Dict]) -> str:
+        """Build system prompt using session parameters"""
         if not session_info:
             return "You are a helpful training assistant."
         
-        scenario_name = session_info.get("scenario", "default")
         archetype_id = session_info.get("behavior_archetype", "novice")
         level_id = session_info.get("difficulty_level", "1")
+        # scenario parameter from frontend maps to product_id
+        product_id = session_info.get("scenario", "free")
         
-        # Try to load scenario from file, fallback to CLIENT_CONFIG
-        try:
-            scenario, md_prompt = load_scenario(scenario_name)
-            logger.info(f"Context: Loaded scenario '{scenario_name}' from file")
-        except FileNotFoundError as e:
-            logger.warning(f"Context: Scenario file not found, using CLIENT_CONFIG fallback: {e}")
-            # Fallback: construct scenario dict from CLIENT_CONFIG
-            scenario = {
-                "scenario_id": scenario_name,
-                "title": "Сценарий тренировки",
-                "client_profile": CLIENT_CONFIG.get("client_profile", {}),
-                "dialog_objectives": CLIENT_CONFIG.get("dialog_objectives", {}),
-                "compliance_requirements": {},
-                "client_behavior_presets": CLIENT_CONFIG.get("client_behavior_presets", {}),
-                "aida_flow": {}
-            }
-            md_prompt = ""
-        
-        # Store scenario for later use
-        self.scenarios[session_info.get("session_id", "")] = scenario
-        
-        # Build system prompt using dialogue_prompts logic
+        # Build system prompt
         system_prompt = build_system_prompt(
-            scenario=scenario,
-            md_prompt=md_prompt,
             archetype_id=archetype_id,
-            level_id=level_id
+            level_id=level_id,
+            product_id=product_id
         )
         
         return system_prompt
@@ -85,10 +60,7 @@ class Context:
         
         # Build system prompt if it doesn't exist and we have session_info
         if session_id not in self.system_prompts and session_info:
-            # Add session_id to session_info for scenario storage
-            if "session_id" not in session_info:
-                session_info = {**session_info, "session_id": session_id}
-            system_prompt = self._load_and_build_system_prompt(session_info)
+            system_prompt = self._build_system_prompt(session_info)
             self.system_prompts[session_id] = system_prompt
             logger.info(f"Context: Built system prompt for session {session_id}")
         
@@ -123,8 +95,7 @@ class Context:
             cleared = True
         if session_id in self.system_prompts:
             del self.system_prompts[session_id]
-        if session_id in self.scenarios:
-            del self.scenarios[session_id]
+            cleared = True
         
         if cleared:
             logger.info(f"Context: Cleared context for session {session_id}")

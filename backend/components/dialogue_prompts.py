@@ -1,14 +1,51 @@
 """
-Dialogue prompt building logic based on llm_dialogue.py
-Handles scenario loading, system prompt building, and conversation prompt construction.
+Dialogue prompt building logic based on dialogue_simulator.py
+Handles system prompt building and conversation prompt construction.
+All prompt settings are hardcoded, no external config files.
 """
 import json
 import re
 import logging
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Any
 
 logger = logging.getLogger(__name__)
+
+# Regex patterns for text processing
+ROLE_PREFIX_RE = re.compile(r"^\s*(Оператор|Менеджер|Клиент|Manager|Operator|Client)\s*[:\-–]\s*", re.IGNORECASE)
+BULLET_RE = re.compile(r"^\s*[\-\*\•]+\s*")
+WS_RE = re.compile(r"\s+")
+
+# Разрешаем: русские, английские, цифры, базовая пунктуация, пробелы
+# + добавили "…" и "№" (часто встречаются в русском, чтобы не было ложных NON_RU)
+ALLOWED_BASIC_RE = re.compile(
+    r"[^А-Яа-яЁёA-Za-z0-9,.;:!?()\"'«»""„\-\s/&_+%#…№]"
+)
+
+# Быстрый детектор "чужих" символов (CJK/арабский и т.п.) — также разрешаем … и №
+NON_RU_EN_LETTER_RE = re.compile(
+    r"[^\sА-Яа-яЁёA-Za-z0-9,.;:!?()\"'«»""„\-\s/&_+%#…№]"
+)
+
+# Детектор "клиент начал интервьюировать менеджера" (вопросы во 2-м лице)
+ROLE_SWAP_PATTERNS = [
+    r"\bсколько\s+вы\b",
+    r"\bсколько\s+у\s+вас\b",
+    r"\bкакие\s+у\s+вас\b",
+    r"\bкакая\s+у\s+вас\b",
+    r"\bкаков[ао]\s+у\s+вас\b",
+    r"\bу\s+вас\b.*\?",
+    r"\bвы\b.*\?",
+    r"\bскажите\b.*\?",
+    r"\bподскажите\b.*\?",
+]
+ROLE_SWAP_RE = re.compile("|".join(ROLE_SWAP_PATTERNS), re.IGNORECASE)
+
+# Мета-триггеры для детекции утечек
+META_TRIGGERS = [
+    "как клиент", "как менеджер", "инструкция", "правила", "план", "aida", "методич",
+    "язык модели", "system", "prompt", "в этом диалоге", "буду отвечать", "рекомендац",
+]
+ROLE_LEAK_TRIGGERS = ["менеджер:", "оператор:", "manager:", "operator:"]
 
 
 def normalize_text_line(text: str) -> str:
@@ -16,73 +53,150 @@ def normalize_text_line(text: str) -> str:
     Нормализуем одну строку текста:
     - приводим "красивые" кавычки и тире к обычным,
     - убираем переводы строк,
-    - схлопываем лишние пробелы.
+    - схлопываем лишние пробелы,
+    - нормализуем non-breaking space и многоточие.
     Подходит и для длинных текстов.
     """
     if not text:
         return ""
 
-    # Приводим красивые кавычки/тире к обычным
     replacements = {
         """: '"', """: '"', "„": '"', "«": '"', "»": '"',
         "'": "'", "'": "'",
         "—": "-", "–": "-",
+        "\u00a0": " ",  # non-breaking space
+        "…": "...",     # нормализуем многоточие
     }
     for src, dst in replacements.items():
         text = text.replace(src, dst)
 
     # Переводы строк -> пробел
     text = text.replace("\r", " ").replace("\n", " ")
-
-    # Схлопываем пробелы
-    text = re.sub(r"\s+", " ", text)
-
+    text = WS_RE.sub(" ", text)
     return text.strip()
 
 
-def clean_reply(raw: str, max_sentences: int = 3) -> str:
+def _trim_to_sentence_boundary(text: str, max_chars: int) -> str:
+    """Режем по последней границе предложения в пределах max_chars (чтобы не обрубать мысль)."""
+    if not text or max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+
+    cut = text[:max_chars].rstrip()
+
+    # Ищем последнюю пунктуацию конца предложения.
+    last_end = max(cut.rfind("."), cut.rfind("!"), cut.rfind("?"))
+
+    # Если нашли конец предложения достаточно далеко (>= 55% лимита), режем там.
+    if last_end >= max(0, int(max_chars * 0.55)):
+        return cut[: last_end + 1].strip()
+
+    # Иначе просто мягко обрежем по символам (лучше чем пусто).
+    return cut.strip()
+
+
+def clean_reply(raw: str, max_sentences: int = 5, reply_max_chars: int = 320) -> str:
     """
-    Чистим ответ модели:
-    - убираем префиксы ролей в начале строки,
-    - убираем маркеры списков,
-    - нормализуем кавычки/тире/пробелы,
-    - оставляем только русские символы + цифры + базовую пунктуацию,
-    - ограничиваемся 1–3 предложениями (но НЕ режем по первой строке).
+    1) вычищает префиксы ролей/буллеты
+    2) нормализует
+    3) удаляет "странные" символы, но сохраняет RU+EN (бренды)
+    4) ограничивает по предложениям и по символам (по границе предложения)
     """
     if not raw:
         return ""
-
     text = raw.strip()
-
-    # Убираем префиксы ролей только в НАЧАЛЕ строки:
-    # "Оператор: ..." / "Менеджер: ..." / "Operator: ..." / "Manager: ..."
-    text = re.sub(
-        r"^\s*(Оператор|Менеджер|Manager|Operator)\s*[:\-–]\s*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    # Убираем маркеры списков в начале: "- ", "* ", "• "
-    text = re.sub(r"^\s*[\-\*\•]+\s*", "", text)
-
-    # Нормализуем кавычки/тире/пробелы и убираем внутренние переносы строк
+    text = ROLE_PREFIX_RE.sub("", text)
+    text = BULLET_RE.sub("", text)
     text = normalize_text_line(text)
 
-    # Оставляем только русские буквы, цифры и базовую пунктуацию
-    text = re.sub(r"[^А-Яа-яЁё0-9,.;:!?()\"'\-\s]", " ", text)
-    text = re.sub(r"\s{2,}", " ", text).strip()
-
+    # выкидываем совсем "левые" символы, но не трогаем A-Za-z (Google Sheets/Excel)
+    text = ALLOWED_BASIC_RE.sub(" ", text)
+    text = WS_RE.sub(" ", text).strip()
     if not text:
         return ""
 
-    # Ограничиваем количество предложений (1–3), чтобы ответ не был полотном
-    # Разбиваем по . ! ? с сохранением знака
-    parts = re.split(r'(?<=[.!?])\s+', text)
+    # ограничение по предложениям
+    parts = re.split(r"(?<=[.!?])\s+", text)
     if parts:
         text = " ".join(parts[:max_sentences]).strip()
 
+    # ограничение по символам (по границе предложения)
+    text = _trim_to_sentence_boundary(text, reply_max_chars)
     return text
+
+
+def clean_manager_input(raw: str) -> str:
+    """Очищает ввод менеджера от префиксов ролей и нормализует."""
+    if not raw:
+        return ""
+    text = raw.strip()
+    text = ROLE_PREFIX_RE.sub("", text)
+    return normalize_text_line(text)
+
+
+def has_non_ru_en_garbage(text: str) -> bool:
+    """True если есть символы вне RU/EN/цифр/базовой пунктуации."""
+    if not text:
+        return True
+    return bool(NON_RU_EN_LETTER_RE.search(text))
+
+
+def raw_has_non_ru_en_garbage(raw: str) -> bool:
+    """Проверка мусора на сыром тексте (до чистки), чтобы ретраи реально имели смысл."""
+    if not raw:
+        return True
+    t = raw.strip()
+    t = ROLE_PREFIX_RE.sub("", t)
+    t = normalize_text_line(t)
+    return bool(NON_RU_EN_LETTER_RE.search(t))
+
+
+def is_meta_or_role_leak(text: str) -> bool:
+    """Проверяет наличие мета-утечек или префиксов ролей в ответе."""
+    if not text:
+        return True
+    t = text.strip().lower()
+    if any(x in t for x in ROLE_LEAK_TRIGGERS):
+        return True
+    if any(x in t for x in META_TRIGGERS):
+        return True
+    if "\n" in t:
+        return True
+    return False
+
+
+def is_role_swap(reply: str) -> bool:
+    """True если ответ клиента выглядит как вопрос менеджеру (2-е лицо)."""
+    if not reply:
+        return True
+    t = reply.strip()
+    if "?" in t and ROLE_SWAP_RE.search(t):
+        return True
+    return False
+
+
+def _simple_normalized(text: str) -> str:
+    """Нормализует текст для сравнения (убирает пунктуацию, приводит к нижнему регистру)."""
+    t = (text or "").lower()
+    t = re.sub(r"[^\w\s]", " ", t)
+    t = WS_RE.sub(" ", t).strip()
+    return t
+
+
+def is_repeat_reply(prev: str, new: str) -> bool:
+    """Проверяет, не повторяется ли новый ответ относительно предыдущего (Jaccard >= 0.85)."""
+    a = _simple_normalized(prev)
+    b = _simple_normalized(new)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    sa, sb = set(a.split()), set(b.split())
+    if not sa or not sb:
+        return False
+    j = len(sa & sb) / max(1, len(sa | sb))
+    return j >= 0.85
 
 
 def normalize_phrases(raw):
@@ -103,151 +217,175 @@ def normalize_phrases(raw):
     return [x for x in out if x]
 
 
-def detect_stage(manager_turns: int) -> str:
-    """
-    Грубое приближение:
-    1-й ход менеджера  -> attention
-    2–3-й              -> interest
-    4–6-й              -> desire
-    7+                 -> action
-    """
-    if manager_turns <= 1:
-        return "attention"
-    if manager_turns <= 3:
-        return "interest"
-    if manager_turns <= 6:
-        return "desire"
-    return "action"
+# Архетипы клиентов (как в dialogue_simulator.py)
+ARCHETYPES: Dict[str, Dict[str, Any]] = {
+    "novice": {
+        "name": "Новичок",
+        "personality": "Я только начинаю, хочу простые объяснения, могу путаться, но без агрессии.",
+        "speech_style": "коротко, по делу, иногда уточняю базовые вещи",
+        "default_goal": "понять, что это и нужно ли мне",
+        "taboos": ["не изображай эксперта", "не используй сложные термины без просьбы"],
+    },
+    "skeptic": {
+        "name": "Скептик",
+        "personality": "Не доверяю, ищу подвох, не люблю воду, требую конкретику.",
+        "speech_style": "строго, без эмоций, 'покажите цифры'",
+        "default_goal": "минимизировать риск и не попасть на комиссии",
+        "taboos": ["не становись дружелюбным", "не соглашайся слишком быстро"],
+    },
+    "busy_owner": {
+        "name": "Занятой предприниматель",
+        "personality": "У меня нет времени, я постоянно в делах. Если тянут время — раздражаюсь.",
+        "speech_style": "короткие фразы, перебиваю, прошу тезисы",
+        "default_goal": "быстро понять выгоду и сколько времени займёт",
+        "taboos": ["не уходи в длинные монологи"],
+    },
+    "friendly": {
+        "name": "Дружелюбный",
+        "personality": "Нормально отношусь к звонку, готов обсудить, но всё равно считаю деньги.",
+        "speech_style": "вежливо, без резкости, задаю вопросы",
+        "default_goal": "подобрать удобный вариант",
+        "taboos": ["не становись слишком 'сладким'"],
+    },
+}
+
+# Уровни сложности (как в dialogue_simulator.py)
+DIFFICULTY: Dict[str, Dict[str, Any]] = {
+    "1": {"name": "1 — Лёгкий", "question_rate": "low", "resistance": "low", "traps": False},
+    "2": {"name": "2 — Нормальный", "question_rate": "medium", "resistance": "medium", "traps": False},
+    "3": {"name": "3 — Сложный", "question_rate": "medium", "resistance": "high", "traps": True},
+    "4": {"name": "4 — Очень сложный", "question_rate": "high", "resistance": "very_high", "traps": True},
+}
+
+# Продукты/сценарии (как в dialogue_simulator.py)
+PRODUCTS: Dict[str, Dict[str, Any]] = {
+    "free": {
+        "name": "Свободная тема",
+        "description": "Без сценариев. Клиент — личность (архетип+сложность).",
+        "facts": [],
+        "goal": "",
+        "typical_next_steps": [],
+    },
+    "rko": {
+        "name": "РКО",
+        "description": "Разговор про расчётный счёт/комиссии/обслуживание/подключение.",
+        "facts": [
+            "У клиента может быть счёт в другом банке",
+            "Клиента волнуют комиссии, обслуживание, лимиты, скорость операций",
+        ],
+        "goal": "понять выгоду/риски и решить, есть ли смысл двигаться дальше",
+        "typical_next_steps": ["получить расчёт тарифа", "назначить созвон/встречу", "оставить контакты"],
+    },
+    "bank_card": {
+        "name": "Бизнес-карта",
+        "description": "Разговор про карту, лимиты, кэшбэк, контроль расходов.",
+        "facts": [
+            "Клиенту важны лимиты, комиссии, безопасность",
+            "Иногда нужна карта для сотрудников",
+        ],
+        "goal": "понять выгоду и стоит ли оформлять",
+        "typical_next_steps": ["уточнить тариф", "оформить заявку", "созвон для деталей"],
+    },
+}
 
 
-def load_scenario(name: str) -> Tuple[Dict, str]:
-    """
-    Загружает сценарий из JSON и Markdown-промпт.
-    
-    Args:
-        name: Имя сценария без расширения
-        
-    Returns:
-        Tuple[scenario_dict, markdown_prompt]
-    """
-    # Определяем базовый путь (backend директория)
-    # Файл находится в backend/components/, поэтому parent.parent = backend/
-    backend_dir = Path(__file__).parent.parent
-    
-    # Путь к JSON сценарию
-    json_path = backend_dir / "scenarios" / f"{name}.json"
-    
-    if not json_path.exists():
-        raise FileNotFoundError(
-            f"❌ Сценарий '{name}' не найден. Проверьте наличие файла backend/scenarios/{name}.json"
-        )
-    
-    # Путь к Markdown-промпту
-    md_path = backend_dir / "prompts" / f"{name}.md"
-    
-    if not md_path.exists():
-        # Если markdown не найден, используем пустую строку
-        logger.warning(f"Markdown промпт для сценария '{name}' не найден, используется пустая строка")
-        md_content = ""
-    else:
-        with open(md_path, "r", encoding="utf-8") as f:
-            md_content = f.read()
-    
-    with open(json_path, "r", encoding="utf-8") as f:
-        scenario = json.load(f)
-    
-    return scenario, md_content
+def _compact_json_list(xs: List[str]) -> str:
+    """Компактный формат списка для промпта: [item1; item2; item3]"""
+    if not xs:
+        return "[]"
+    return "[" + "; ".join(xs) + "]"
+
+
+def resolve_archetype(archetype_id: str) -> Dict[str, Any]:
+    """Разрешает архетип по ID с fallback."""
+    return ARCHETYPES.get(archetype_id, {
+        "name": archetype_id,
+        "personality": "Неизвестный архетип (fallback). Веди себя нейтрально.",
+        "speech_style": "кратко",
+        "default_goal": "понять суть",
+        "taboos": [],
+    })
+
+
+def resolve_difficulty(level_id: str) -> Dict[str, Any]:
+    """Разрешает уровень сложности по ID с fallback."""
+    return DIFFICULTY.get(level_id, {
+        "name": level_id, "question_rate": "medium", "resistance": "medium", "traps": False,
+    })
+
+
+def resolve_product(product_id: str) -> Dict[str, Any]:
+    """Разрешает продукт/сценарий по ID с fallback."""
+    return PRODUCTS.get(product_id, {
+        "name": product_id, "description": "Неизвестный продукт (fallback).",
+        "facts": [], "goal": "", "typical_next_steps": [],
+    })
 
 
 def build_system_prompt(
-    scenario: Dict,
-    md_prompt: str,
     archetype_id: str = "novice",
-    level_id: str = "1"
+    level_id: str = "1",
+    product_id: str = "free"
 ) -> str:
     """
-    Собираем системный промпт из JSON-сценария + Markdown-промпта.
-    archetype_id / level_id приходят с CLI и берутся из client_behavior_presets.
+    Собираем системный промпт в новом компактном формате (как в dialogue_simulator.py).
+    archetype_id / level_id / product_id приходят с frontend.
+    
+    Args:
+        archetype_id: ID архетипа клиента
+        level_id: ID уровня сложности
+        product_id: ID продукта/сценария
     """
-    profile = scenario.get("client_profile", {}) or {}
-    objectives = scenario.get("dialog_objectives", {}) or {}
-    compliance = scenario.get("compliance_requirements", {}) or {}
-    presets = scenario.get("client_behavior_presets", {}) or {}
-    aida = scenario.get("aida_flow", {}) or {}
-    scenario_id = scenario.get("scenario_id", "")
-    scenario_title = scenario.get("title") or scenario.get("name") or "сценарий тренировки"
+    a = resolve_archetype(archetype_id)
+    d = resolve_difficulty(level_id)
+    p = resolve_product(product_id)
 
-    archetypes = presets.get("archetypes", {}) or {}
-    difficulty_levels = presets.get("difficulty_levels", {}) or {}
+    traps_hint = "ловушки=да" if d.get("traps") else "ловушки=нет"
+    taboos_line = _compact_json_list(a.get("taboos", []) or [])
 
-    archetype = archetypes.get(archetype_id, {}) or {}
-    difficulty = difficulty_levels.get(level_id, {}) or {}
+    product_line = ""
+    if product_id != "free":
+        product_line = (
+            f"\nКонтекст: {p.get('name')} ({p.get('description')})"
+            f"\nФакты: {_compact_json_list(p.get('facts', []) or [])}"
+            f"\nЦель клиента: {p.get('goal','')}"
+        )
 
-    mandatory = normalize_phrases(compliance.get("mandatory_phrases", []))
-    forbidden = normalize_phrases(compliance.get("forbidden_phrases", []))
+    # Усиление правила инициативы: запрет на "интервью менеджера"
+    if archetype_id == "novice":
+        initiative_rule = (
+            "Правило инициативы: если менеджер задаёт вопросы — отвечай ТОЛЬКО про себя/свою компанию. "
+            "Вообще не задавай встречных вопросов менеджеру. "
+            "Если не понял — скажи 'Не понял, поясните простыми словами' (без вопроса 'у вас/вы').\n"
+        )
+    else:
+        initiative_rule = (
+            "Правило инициативы: если менеджер задаёт вопросы — отвечай ТОЛЬКО про себя/свою компанию. "
+            "Не задавай встречных вопросов менеджеру. "
+            "Если нужно уточнение — максимум ОДИН вопрос и только про себя/свою ситуацию.\n"
+        )
 
-    # Более явное описание архетипа / сложности для модели
-    archetype_name = archetype.get("name") or archetype_id
-    archetype_personality = archetype.get("personality") or archetype.get("description") or ""
-    difficulty_name = difficulty.get("name") or level_id
-    difficulty_desc = difficulty.get("description") or ""
+    hard_bans = (
+        "Запрещено: задавать вопросы про менеджера/банк/условия менеджера во 2-м лице "
+        "(например: 'Скажите, сколько вы платите', 'Какие у вас комиссии', 'Сколько у вас платежей').\n"
+    )
 
-    return f"""
-Ты — ИИ-клиент на телефонном звонке с менеджером по {scenario_title}.
-Сценарий: {scenario_id or "без явного идентификатора"}.
-Твой архетип клиента: {archetype_name} (id: {archetype_id}).
-Кратко о характере архетипа: {archetype_personality or "см. описание ниже"}.
-Уровень сложности: {difficulty_name} (id: {level_id}).
-Что означает этот уровень сложности для поведения клиента: {difficulty_desc or "см. описание ниже"}.
+    # Базовый промпт (как в dialogue_simulator)
+    prompt = (
+        "Ты — ИИ-клиент. Отвечай ТОЛЬКО как клиент.\n"
+        "Язык: ТОЛЬКО русский.\n"
+        "Английские слова допускаются ТОЛЬКО как названия брендов/сервисов/продуктов (пример: Google Sheets, Excel, CRM).\n"
+        "НЕ используй другие языки (например: 中文, العربية) — если так получилось, перефразируй по-русски, оставив только бренды на английском.\n"
+        "Формат: 1–5 коротких предложений (по смыслу), без списков.\n"
+        f"{initiative_rule}"
+        f"{hard_bans}"
+        "Нельзя: инструкции/планы/объяснение правил/роль 'менеджера'.\n"
+        f"Личность: {a.get('name')} | {a.get('personality')} | стиль: {a.get('speech_style')} | цель: {a.get('default_goal')} | табу: {taboos_line}\n"
+        f"Сложность: {d.get('name')} | сопротивление={d.get('resistance')} | вопросы={d.get('question_rate')} | {traps_hint}"
+        f"{product_line}"
+    )
 
-Говоришь ТОЛЬКО от лица клиента, в первом лице ("я").
-НИКОГДА не пишешь реплики за менеджера и не используешь префиксы "Менеджер:", "Оператор:" и т.п.
-
-Формат речи:
-- отвечаешь только на ПОСЛЕДНЮЮ фразу менеджера;
-- 1–3 коротких, естественных предложения;
-- деловой тон, в соответствии с архетипом ({archetype_name}) и его характером;
-- ТОЛЬКО на русском языке, без английских слов и технических комментариев.
-
-Ключевые правила поведения:
-- НЕ повторяй дословно один и тот же вопрос или замечание.
-  Если ты уже спрашивал что-то в духе "Подождите, какой счёт?" или аналогичный вопрос,
-  больше так дословно не повторяй, переформулируй или задай новый уточняющий вопрос.
-- Если менеджер уже начал объяснять условия и выгоды, НЕ возвращайся к самым первым базовым вопросам,
-  лучше уточни детали или вырази сомнения/интерес.
-- На этапе действия (action) — если условия понятны и в целом подходят,
-  логично согласиться на следующий шаг (встреча, оформление, тест),
-  либо аккуратно отказаться, но НЕ возвращаться к самому первому вопросу.
-
-Обязательно:
-- придерживайся архетипа клиента и уровня сложности;
-- если сложность выше, можешь давать больше возражений, сомнений, вопросов;
-- если это агрессивный/стрессовый архетип — допускается повышенный тон, перебивания, но без откровенных оскорблений.
-
-Профиль клиента (кто ты и в какой ситуации находишься):
-{json.dumps(profile, ensure_ascii=False, indent=2)}
-
-Архетип клиента (описание поведения, эмоций и стиля общения):
-{json.dumps(archetype, ensure_ascii=False, indent=2)}
-
-Уровень сложности (что от тебя ожидается на этом уровне):
-{json.dumps(difficulty, ensure_ascii=False, indent=2)}
-
-Инструкция поведения (Markdown-промпт сценария):
-{md_prompt}
-
-Цели тренировки (что менеджер должен отработать):
-{json.dumps(objectives, ensure_ascii=False, indent=2)}
-
-AIDA (этапы диалога и логика движения разговора):
-{json.dumps(aida, ensure_ascii=False, indent=2)}
-
-Обязательные фразы менеджера (для информации клиента — он может на них реагировать):
-{json.dumps(mandatory, ensure_ascii=False, indent=2)}
-
-Запрещённые фразы для менеджера (клиент может настороженно реагировать, если слышит подобное):
-{json.dumps(forbidden, ensure_ascii=False, indent=2)}
-""".strip()
+    return prompt
 
 
 def make_prompt(
@@ -256,7 +394,7 @@ def make_prompt(
     max_turns: int = 8
 ) -> str:
     """
-    Собирает полный промпт для модели из системного промпта и истории диалога.
+    Собирает полный промпт для модели в новом формате (как в dialogue_simulator.py).
     
     Args:
         system_prompt: Системный промпт
@@ -264,29 +402,20 @@ def make_prompt(
         max_turns: Максимальное количество последних реплик для включения
         
     Returns:
-        Полный промпт для модели
+        Полный промпт для модели в формате:
+        [system_prompt]
+        
+        Диалог:
+        M: [manager text]
+        C: [client text]
+        ...
+        C:
     """
-    manager_turns = sum(1 for t in conversation if t["role"] == "manager")
-    stage = detect_stage(manager_turns)
-
-    history = conversation[-max_turns:]
-    lines = [system_prompt, ""]
-    lines.append(f"Текущий этап AIDA (примерно): {stage}")
-    if stage == "attention":
-        lines.append("На этом этапе клиент только знакомится с менеджером и контекстом, НЕ задаёт слишком много однотипных вопросов и может проявлять лёгкое недоверие или удивление.")
-    elif stage == "interest":
-        lines.append("На этом этапе клиент проявляет интерес и задаёт 1–2 уточняющих вопроса, но не зацикливается на одном и том же. Он старается понять выгоды и риски.")
-    elif stage == "desire":
-        lines.append("На этом этапе клиент обсуждает выгоды, сравнивает с текущим решением, может осторожно соглашаться протестировать продукт или углубляться в детали.")
-    else:
-        lines.append("На этапе action клиент либо соглашается на следующий шаг (встреча/оформление/тест), либо вежливо отказывается, но НЕ возвращается к самым первым вопросам.")
-
-    lines.append("")
-    lines.append("История диалога (последние реплики):")
+    history = conversation[-max_turns:] if max_turns > 0 else conversation[:]
+    lines = [system_prompt, "\nДиалог:"]
     for turn in history:
-        role = "Менеджер" if turn["role"] == "manager" else "Клиент"
+        role = "M" if turn["role"] == "manager" else "C"
         lines.append(f"{role}: {turn['text']}")
-    lines.append("")
-    lines.append("Ответ клиента (1–3 коротких предложения, без повторения уже заданных им самим вопросов и без реплик за менеджера):")
+    lines.append("C:")
     return "\n".join(lines)
 

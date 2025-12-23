@@ -6,6 +6,7 @@ import io
 import numpy as np
 import soundfile as sf
 import torch
+from torch.cpu import is_available
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,13 @@ class TTSComponent:
         
         logger.info("TTS: Initializing Silero TTS model...")
         try:
+            if torch.cuda.is_available():
+                self.device = 'cuda'
+            elif torch.backends.mps.is_available():
+                self.device = 'mps'
+            else:
+                self.device = 'cpu'
             # Set device (GPU if available, else CPU)
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             logger.info(f"TTS: Using device: {self.device}")
             
             # Download model if not exists
@@ -79,15 +85,13 @@ class TTSComponent:
             audio_np = np.asarray(audio, dtype=np.float32)
             if audio_np.ndim > 1:
                 # Convert multi-channel to mono
+                logger.info(f"TTS: Converting multi-channel audio to mono")
                 audio_np = np.mean(audio_np, axis=-1).astype(np.float32)
 
             # Write WAV to in-memory buffer
             buffer = io.BytesIO()
             sf.write(buffer, audio_np, SAMPLE_RATE, format="WAV")
             audio_bytes: bytes = buffer.getvalue()
-
-            if not audio_bytes:
-                raise ValueError("Generated audio bytes are empty")
 
             # Encode to base64
             audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")

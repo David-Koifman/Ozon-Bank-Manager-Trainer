@@ -15,7 +15,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   
   // Training parameters
-  const [scenario, setScenario] = useState('default')
+  const [scenario, setScenario] = useState('free')
   const [speaker, setSpeaker] = useState('aidar')
   const [behaviorArchetype, setBehaviorArchetype] = useState('novice')
   const [difficultyLevel, setDifficultyLevel] = useState('1')
@@ -371,16 +371,15 @@ function App() {
               <>
                 <div className="training-params">
                   <div className="param-group">
-                    <label htmlFor="scenario">Scenario</label>
+                    <label htmlFor="scenario">Scenario / Product</label>
                     <select
                       id="scenario"
                       value={scenario}
                       onChange={(e) => setScenario(e.target.value)}
                     >
-                      <option value="default">Default</option>
-                      <option value="customer_service">Customer Service</option>
-                      <option value="technical_support">Technical Support</option>
-                      <option value="sales">Sales</option>
+                      <option value="free">Свободная тема</option>
+                      <option value="rko">РКО</option>
+                      <option value="bank_card">Бизнес-карта</option>
                     </select>
                   </div>
 
@@ -407,9 +406,9 @@ function App() {
                       onChange={(e) => setBehaviorArchetype(e.target.value)}
                     >
                       <option value="novice">Новичок</option>
-                      <option value="silent">Молчун</option>
-                      <option value="expert">Эксперт</option>
-                      <option value="complainer">Жалобщик</option>
+                      <option value="skeptic">Скептик</option>
+                      <option value="busy_owner">Занятой предприниматель</option>
+                      <option value="friendly">Дружелюбный</option>
                     </select>
                   </div>
 
@@ -420,10 +419,10 @@ function App() {
                       value={difficultyLevel}
                       onChange={(e) => setDifficultyLevel(e.target.value)}
                     >
-                      <option value="1">Базовый (1)</option>
-                      <option value="2">Стандартный (2)</option>
-                      <option value="3">Продвинутый (3)</option>
-                      <option value="4">Экспертный (4)</option>
+                      <option value="1">1 — Лёгкий</option>
+                      <option value="2">2 — Нормальный</option>
+                      <option value="3">3 — Сложный</option>
+                      <option value="4">4 — Очень сложный</option>
                     </select>
                   </div>
                 </div>

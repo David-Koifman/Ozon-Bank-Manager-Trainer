@@ -174,6 +174,7 @@ class Orchestrator:
             processed_sentences = set()
             tts_total_time = 0.0
             tts_count = 0
+            extract_sentence_time_total = 0
             
             async for text_chunk in llm.generate_response_stream(
                 user_input=transcription,
@@ -183,7 +184,10 @@ class Orchestrator:
                 sentence_buffer += text_chunk
                 
                 # Check if we have complete sentences
+                extract_sentence_start = time.time()
                 complete_sentences, remaining = extract_complete_sentences(sentence_buffer)
+                extract_sentence_time = time.time() - extract_sentence_start
+                extract_sentence_time_total += extract_sentence_time
                 
                 # Process complete sentences
                 for sentence in complete_sentences:
@@ -267,7 +271,8 @@ class Orchestrator:
                 f"TTS: {tts_total_time:.3f}s ({tts_count} chunks, avg: {tts_total_time/tts_count if tts_count > 0 else 0:.3f}s), "
                 f"Clean: {clean_time:.3f}s, "
                 f"Context Update: {context_update_time:.3f}s, "
-                f"Total: {overall_time:.3f}s"
+                f"Total: {overall_time:.3f}s, "
+                f"Extraction sentences: {extract_sentence_time_total:.3f}s"
             )
         
         except Exception as e:
