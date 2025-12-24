@@ -539,124 +539,175 @@ function App() {
         )}
 
         {/* Judgment visualization */}
-        {judgment && (
-          <div className="judgment-section">
-            <div className="judgment-header">
-              <h2>📊 Session Evaluation</h2>
-            </div>
-            
-            <div className="judgment-content">
-              {/* Overall Score */}
-              <div className="judgment-card overall-score">
-                <h3>Overall Score</h3>
-                <div className="score-display">
-                  <div className="score-circle" style={{
-                    '--score': judgment.judgment.overall_score,
-                    '--max-score': 10
-                  }}>
-                    <span className="score-value">{judgment.judgment.overall_score}</span>
-                    <span className="score-max">/ 10</span>
-                  </div>
-                  <div className={`quality-badge quality-${judgment.judgment.overall_quality}`}>
-                    {judgment.judgment.overall_quality === 'excellent' && '⭐ Excellent'}
-                    {judgment.judgment.overall_quality === 'good' && '✓ Good'}
-                    {judgment.judgment.overall_quality === 'average' && '→ Average'}
-                    {judgment.judgment.overall_quality === 'poor' && '⚠ Poor'}
-                  </div>
-                </div>
+        {judgment && (() => {
+          // Calculate overall quality from total_score
+          const totalScore = judgment.total_score || 0
+          const maxScore = 10.0
+          const scoreRatio = totalScore / maxScore
+          const overallQuality = scoreRatio >= 0.9 ? 'excellent' : 
+                                scoreRatio >= 0.7 ? 'good' : 
+                                scoreRatio >= 0.5 ? 'average' : 'poor'
+          
+          // Transform scores dict to aspect_scores array
+          const aspectScores = Object.entries(judgment.scores || {}).map(([criterion, value]) => {
+            let scoreValue = 0
+            if (criterion === 'politeness') {
+              scoreValue = typeof value === 'number' ? value : 0
+            } else {
+              scoreValue = value ? 10 : 0
+            }
+            return {
+              aspect: criterion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+              score: scoreValue,
+              passed: value === true || (criterion === 'politeness' && value > 0)
+            }
+          })
+          
+          // Create summary from feedback
+          const summaryParts = []
+          if (judgment.feedback_positive && judgment.feedback_positive.length > 0) {
+            summaryParts.push(`Strengths: ${judgment.feedback_positive.slice(0, 2).join(', ')}`)
+          }
+          if (judgment.feedback_improvement && judgment.feedback_improvement.length > 0) {
+            summaryParts.push(`Areas for improvement: ${judgment.feedback_improvement.slice(0, 2).join(', ')}`)
+          }
+          const summary = summaryParts.join('. ') || 'Evaluation completed.'
+          
+          return (
+            <div className="judgment-section">
+              <div className="judgment-header">
+                <h2>📊 Session Evaluation</h2>
               </div>
-
-              {/* Summary */}
-              <div className="judgment-card">
-                <h3>Summary</h3>
-                <p>{judgment.judgment.summary}</p>
-              </div>
-
-              {/* Aspect Scores */}
-              <div className="judgment-card">
-                <h3>Detailed Scores</h3>
-                <div className="aspect-scores">
-                  {judgment.judgment.aspect_scores.map((aspect, idx) => (
-                    <div key={idx} className="aspect-item">
-                      <div className="aspect-header">
-                        <span className="aspect-name">{aspect.aspect}</span>
-                        <span className="aspect-score">{aspect.score}/10</span>
-                      </div>
-                      <div className="score-bar">
-                        <div 
-                          className="score-fill" 
-                          style={{ width: `${(aspect.score / 10) * 100}%` }}
-                        ></div>
-                      </div>
-                      <p className="aspect-comment">{aspect.comment}</p>
+              
+              <div className="judgment-content">
+                {/* Overall Score */}
+                <div className="judgment-card overall-score">
+                  <h3>Overall Score</h3>
+                  <div className="score-display">
+                    <div className="score-circle" style={{
+                      '--score': totalScore,
+                      '--max-score': 10
+                    }}>
+                      <span className="score-value">{totalScore.toFixed(1)}</span>
+                      <span className="score-max">/ 10</span>
                     </div>
-                  ))}
+                    <div className={`quality-badge quality-${overallQuality}`}>
+                      {overallQuality === 'excellent' && '⭐ Excellent'}
+                      {overallQuality === 'good' && '✓ Good'}
+                      {overallQuality === 'average' && '→ Average'}
+                      {overallQuality === 'poor' && '⚠ Poor'}
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Strengths */}
-              {judgment.judgment.strengths && judgment.judgment.strengths.length > 0 && (
-                <div className="judgment-card strengths">
-                  <h3>✅ Strengths</h3>
-                  <ul>
-                    {judgment.judgment.strengths.map((strength, idx) => (
-                      <li key={idx}>{strength}</li>
-                    ))}
-                  </ul>
+                {/* Summary */}
+                <div className="judgment-card">
+                  <h3>Summary</h3>
+                  <p>{summary}</p>
                 </div>
-              )}
 
-              {/* Weaknesses */}
-              {judgment.judgment.weaknesses && judgment.judgment.weaknesses.length > 0 && (
-                <div className="judgment-card weaknesses">
-                  <h3>⚠️ Areas for Improvement</h3>
-                  <ul>
-                    {judgment.judgment.weaknesses.map((weakness, idx) => (
-                      <li key={idx}>{weakness}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                {/* Critical Errors */}
+                {judgment.critical_errors && judgment.critical_errors.length > 0 && (
+                  <div className="judgment-card critical-errors">
+                    <h3>❌ Critical Errors</h3>
+                    <ul>
+                      {judgment.critical_errors.map((error, idx) => (
+                        <li key={idx} className="error-item">{error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
-              {/* Recommendations */}
-              {judgment.judgment.recommendations && judgment.judgment.recommendations.length > 0 && (
-                <div className="judgment-card recommendations">
-                  <h3>💡 Recommendations</h3>
-                  <ul>
-                    {judgment.judgment.recommendations.map((rec, idx) => (
-                      <li key={idx}>{rec}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                {/* Aspect Scores */}
+                {aspectScores.length > 0 && (
+                  <div className="judgment-card">
+                    <h3>Detailed Scores</h3>
+                    <div className="aspect-scores">
+                      {aspectScores.map((aspect, idx) => (
+                        <div key={idx} className="aspect-item">
+                          <div className="aspect-header">
+                            <span className="aspect-name">{aspect.aspect}</span>
+                            <span className="aspect-score">{aspect.score}/10</span>
+                          </div>
+                          <div className="score-bar">
+                            <div 
+                              className="score-fill" 
+                              style={{ width: `${(aspect.score / 10) * 100}%` }}
+                            ></div>
+                          </div>
+                          <p className="aspect-comment">
+                            {aspect.passed ? '✓ Passed' : '✗ Failed'}: {aspect.aspect}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-              {/* Session Stats */}
-              {judgment.session_stats && (
+                {/* Strengths */}
+                {judgment.feedback_positive && judgment.feedback_positive.length > 0 && (
+                  <div className="judgment-card strengths">
+                    <h3>✅ Strengths</h3>
+                    <ul>
+                      {judgment.feedback_positive.map((strength, idx) => (
+                        <li key={idx}>{strength}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Areas for Improvement */}
+                {judgment.feedback_improvement && judgment.feedback_improvement.length > 0 && (
+                  <div className="judgment-card weaknesses">
+                    <h3>⚠️ Areas for Improvement</h3>
+                    <ul>
+                      {judgment.feedback_improvement.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Recommendations */}
+                {judgment.recommendations && judgment.recommendations.length > 0 && (
+                  <div className="judgment-card recommendations">
+                    <h3>💡 Recommendations</h3>
+                    <ul>
+                      {judgment.recommendations.map((rec, idx) => (
+                        <li key={idx}>{rec}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Additional Info */}
                 <div className="judgment-card stats">
-                  <h3>Session Statistics</h3>
+                  <h3>Session Information</h3>
                   <div className="stats-grid">
                     <div className="stat-item">
-                      <span className="stat-label">Total Interactions</span>
-                      <span className="stat-value">{judgment.session_stats.total_transcriptions || 0}</span>
-                    </div>
-                    <div className="stat-item">
-                      <span className="stat-label">Archetype</span>
-                      <span className="stat-value">{judgment.session_stats.archetype}</span>
-                    </div>
-                    <div className="stat-item">
                       <span className="stat-label">Scenario</span>
-                      <span className="stat-value">{judgment.session_stats.scenario}</span>
+                      <span className="stat-value">{judgment.scenario_id || 'N/A'}</span>
                     </div>
                     <div className="stat-item">
-                      <span className="stat-label">Difficulty</span>
-                      <span className="stat-value">Level {judgment.session_stats.difficulty_level}</span>
+                      <span className="stat-label">Model Used</span>
+                      <span className="stat-value">{judgment.model_used || 'unknown'}</span>
                     </div>
+                    <div className="stat-item">
+                      <span className="stat-label">Backend</span>
+                      <span className="stat-value">{judgment.judge_backend || 'unknown'}</span>
+                    </div>
+                    {judgment.client_profile && (
+                      <div className="stat-item">
+                        <span className="stat-label">Client Type</span>
+                        <span className="stat-value">{judgment.client_profile.type || 'N/A'}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
       </div>
     </div>
   )

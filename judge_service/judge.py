@@ -4,13 +4,13 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .parser import parse_llm_response
-from .client_classifier import ClientClassifier
-from .scenarios import get_scenario_config
-from .prompt_builder import build_evaluate_prompt
+from parser import parse_llm_response
+from client_classifier import ClientClassifier
+from scenarios import get_scenario_config
+from prompt_builder import build_evaluate_prompt
 
-from .backends.ollama_backend import OllamaBackend
-from .backends.openrouter_backend import OpenRouterBackend
+from backends.ollama_backend import OllamaBackend
+from backends.openrouter_backend import OpenRouterBackend
 
 import os
 

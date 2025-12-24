@@ -1,7 +1,7 @@
 import json
 from typing import List, Dict, Any
 
-from .scenarios import get_scenario_config
+from scenarios import get_scenario_config
 
 
 def build_evaluate_prompt(

@@ -10,9 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from .database import Database
-from .judge import LLMJudge
-from .scenarios import get_scenario_id
+from database import Database
+from judge import LLMJudge
+from scenarios import get_scenario_id
 
 # Configure logging
 logging.basicConfig(

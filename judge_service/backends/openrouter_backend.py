@@ -23,12 +23,12 @@ class OpenRouterBackend:
             raise RuntimeError("OPENROUTER_API_KEY is not set (empty). Put it into backend/.env or export it before запуском.")
 
         url = "https://openrouter.ai/api/v1/chat/completions"
+        url = 'https://api.proxyapi.ru/openrouter/v1/chat/completions'
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             # Optional but nice-to-have (не обязателен для 200; 401 не из-за них)
-            "X-Title": "Operator Voice Trainer",
         }
 
         payload = {
