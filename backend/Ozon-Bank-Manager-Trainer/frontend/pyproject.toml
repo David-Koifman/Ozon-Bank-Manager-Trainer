@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "operator-voice-trainer-frontend"
+version = "0.1.0"
+description = "Frontend service for Operator Voice Trainer"
+authors = ["sssay10 <duvakin.k@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+streamlit = "^1.51.0"
+audio-recorder-streamlit = "^0.0.8"
+requests = "^2.31.0"
+pydub = "^0.25.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
