@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "operator-voice-trainer-judge"
+version = "0.1.0"
+description = "Judge service for evaluating training sessions in Operator Voice Trainer"
+authors = ["sssay10 <duvakin.k@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+# FastAPI and server
+fastapi = "^0.122.0"
+uvicorn = {extras = ["standard"], version = "^0.38.0"}
+# Data validation
+pydantic = "^2.0.0"
+# HTTP client for OpenRouter backend
+httpx = ">=0.24.0"
+# Database (async support)
+sqlalchemy = "^2.0.0"
+asyncpg = "^0.29.0"
+psycopg2-binary = "^2.9.0"
+# Environment variables
+python-dotenv = "^1.0.0"
+# Ollama client (for local LLM backend)
+ollama = "^0.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+black = "^23.0.0"
+flake8 = "^6.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+

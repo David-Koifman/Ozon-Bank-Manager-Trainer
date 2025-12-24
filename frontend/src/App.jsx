@@ -13,6 +13,8 @@ function App() {
   const [partialTranscription, setPartialTranscription] = useState('')
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [judgment, setJudgment] = useState(null)
+  const [judging, setJudging] = useState(false)
   
   // Training parameters
   const [scenario, setScenario] = useState('free')
@@ -61,19 +63,42 @@ function App() {
       stopCall()
     }
     if (sessionId) {
+      setJudging(true)
+      setJudgment(null)
       try {
-        await fetch(`${API_BASE_URL}/end-training`, {
+        const response = await fetch(`${API_BASE_URL}/end-training`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: sessionId })
         })
+        const data = await response.json()
+        
+        // Check if judgment is included in response
+        if (data.judgment) {
+          setJudgment(data.judgment)
+        } else if (data.judgment_error) {
+          setError(`Failed to get judgment: ${data.judgment_error}`)
+        }
       } catch (err) {
         console.error('Error ending session:', err)
+        setError(`Failed to end session: ${err.message}`)
+      } finally {
+        setJudging(false)
       }
     }
+    // Don't clear sessionId immediately - keep it to show judgment
+    // setSessionId(null)
+    // setSessionInfo(null)
+    // setConversationHistory([])
+  }
+  
+  // Reset session (after viewing judgment)
+  const resetSession = () => {
     setSessionId(null)
     setSessionInfo(null)
     setConversationHistory([])
+    setJudgment(null)
+    setError(null)
   }
 
   // Start WebSocket call for streaming mode
@@ -362,9 +387,16 @@ function App() {
               <>
                 <p>Session ID: <code>{sessionId.substring(0, 8)}...</code></p>
                 <div className="session-controls">
-                  <button className="btn btn-danger" onClick={endSession}>
-                    End Session
-                  </button>
+                  {!judgment && (
+                    <button className="btn btn-danger" onClick={endSession} disabled={judging}>
+                      {judging ? 'Judging...' : 'End Session'}
+                    </button>
+                  )}
+                  {judgment && (
+                    <button className="btn btn-primary" onClick={resetSession}>
+                      New Session
+                    </button>
+                  )}
                 </div>
               </>
             ) : (
@@ -505,10 +537,131 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Judgment visualization */}
+        {judgment && (
+          <div className="judgment-section">
+            <div className="judgment-header">
+              <h2>📊 Session Evaluation</h2>
+            </div>
+            
+            <div className="judgment-content">
+              {/* Overall Score */}
+              <div className="judgment-card overall-score">
+                <h3>Overall Score</h3>
+                <div className="score-display">
+                  <div className="score-circle" style={{
+                    '--score': judgment.judgment.overall_score,
+                    '--max-score': 10
+                  }}>
+                    <span className="score-value">{judgment.judgment.overall_score}</span>
+                    <span className="score-max">/ 10</span>
+                  </div>
+                  <div className={`quality-badge quality-${judgment.judgment.overall_quality}`}>
+                    {judgment.judgment.overall_quality === 'excellent' && '⭐ Excellent'}
+                    {judgment.judgment.overall_quality === 'good' && '✓ Good'}
+                    {judgment.judgment.overall_quality === 'average' && '→ Average'}
+                    {judgment.judgment.overall_quality === 'poor' && '⚠ Poor'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="judgment-card">
+                <h3>Summary</h3>
+                <p>{judgment.judgment.summary}</p>
+              </div>
+
+              {/* Aspect Scores */}
+              <div className="judgment-card">
+                <h3>Detailed Scores</h3>
+                <div className="aspect-scores">
+                  {judgment.judgment.aspect_scores.map((aspect, idx) => (
+                    <div key={idx} className="aspect-item">
+                      <div className="aspect-header">
+                        <span className="aspect-name">{aspect.aspect}</span>
+                        <span className="aspect-score">{aspect.score}/10</span>
+                      </div>
+                      <div className="score-bar">
+                        <div 
+                          className="score-fill" 
+                          style={{ width: `${(aspect.score / 10) * 100}%` }}
+                        ></div>
+                      </div>
+                      <p className="aspect-comment">{aspect.comment}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Strengths */}
+              {judgment.judgment.strengths && judgment.judgment.strengths.length > 0 && (
+                <div className="judgment-card strengths">
+                  <h3>✅ Strengths</h3>
+                  <ul>
+                    {judgment.judgment.strengths.map((strength, idx) => (
+                      <li key={idx}>{strength}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Weaknesses */}
+              {judgment.judgment.weaknesses && judgment.judgment.weaknesses.length > 0 && (
+                <div className="judgment-card weaknesses">
+                  <h3>⚠️ Areas for Improvement</h3>
+                  <ul>
+                    {judgment.judgment.weaknesses.map((weakness, idx) => (
+                      <li key={idx}>{weakness}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Recommendations */}
+              {judgment.judgment.recommendations && judgment.judgment.recommendations.length > 0 && (
+                <div className="judgment-card recommendations">
+                  <h3>💡 Recommendations</h3>
+                  <ul>
+                    {judgment.judgment.recommendations.map((rec, idx) => (
+                      <li key={idx}>{rec}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Session Stats */}
+              {judgment.session_stats && (
+                <div className="judgment-card stats">
+                  <h3>Session Statistics</h3>
+                  <div className="stats-grid">
+                    <div className="stat-item">
+                      <span className="stat-label">Total Interactions</span>
+                      <span className="stat-value">{judgment.session_stats.total_transcriptions || 0}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">Archetype</span>
+                      <span className="stat-value">{judgment.session_stats.archetype}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">Scenario</span>
+                      <span className="stat-value">{judgment.session_stats.scenario}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">Difficulty</span>
+                      <span className="stat-value">Level {judgment.session_stats.difficulty_level}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 export default App
+
 

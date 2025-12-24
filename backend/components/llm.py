@@ -7,37 +7,68 @@ from .dialogue_prompts import make_prompt, clean_reply
 
 logger = logging.getLogger(__name__)
 
+# LLM Provider configuration
+# Set LLM_PROVIDER to "ollama" or "openrouter" (default: "openrouter")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter").lower()
+
 # OpenRouter API configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-# OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")  # Default model
-OPENROUTER_MODEL = "openai/gpt-4o-mini"  # Default model
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-7b-instruct")  # Default model
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# Ollama configuration
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")  # Default Ollama model
 
 
 class LLM:
-    """Large Language Model component using LangChain with OpenRouter API"""
+    """Large Language Model component using LangChain with OpenRouter or Ollama"""
     
     def __init__(self):
-        self.api_key = OPENROUTER_API_KEY
-        self.model = OPENROUTER_MODEL
+        self.provider = LLM_PROVIDER
         self.llm = None
-
-        print(f"OPENROUTER_MODEL: {OPENROUTER_MODEL}")
         
-        if not self.api_key:
-            logger.warning("LLM: OPENROUTER_API_KEY not set. LLM will not work.")
+        if self.provider == "ollama":
+            # Initialize with Ollama
+            try:
+                from langchain_community.chat_models import ChatOllama
+                
+                self.model = OLLAMA_MODEL
+                self.llm = ChatOllama(
+                    model=self.model,
+                    base_url=OLLAMA_BASE_URL,
+                    temperature=0.7,
+                    num_predict=500,  # Ollama uses num_predict instead of max_tokens
+                    timeout=30.0,
+                )
+                logger.info(f"LLM: Initialized with Ollama model {self.model} at {OLLAMA_BASE_URL}")
+            except ImportError:
+                logger.error("LLM: langchain-community not installed. Install with: pip install langchain-community")
+                raise
+            except Exception as e:
+                logger.error(f"LLM: Failed to initialize Ollama: {e}")
+                logger.warning("LLM: Make sure Ollama is running. Start with: ollama serve")
+                raise
+        
+        elif self.provider == "openrouter":
+            # Initialize with OpenRouter
+            self.api_key = OPENROUTER_API_KEY
+            self.model = OPENROUTER_MODEL
+            
+            if not self.api_key:
+                logger.warning("LLM: OPENROUTER_API_KEY not set. LLM will not work.")
+            else:
+                self.llm = ChatOpenAI(
+                    model=self.model,
+                    openai_api_key=self.api_key,
+                    openai_api_base=OPENROUTER_BASE_URL,
+                    temperature=0.7,
+                    max_tokens=500,
+                    timeout=30.0,
+                )
+                logger.info(f"LLM: Initialized with OpenRouter model {self.model}")
         else:
-            # Initialize LangChain ChatOpenAI with OpenRouter endpoint
-            self.llm = ChatOpenAI(
-                model=self.model,
-                openai_api_key=self.api_key,
-                openai_api_base=OPENROUTER_BASE_URL,
-                temperature=0.7,
-                max_tokens=500,
-                timeout=30.0,
-            )
-            logger.info(f"LLM: Initialized with model {self.model}")
+            raise ValueError(f"LLM: Unknown provider '{self.provider}'. Use 'ollama' or 'openrouter'")
     
     def _build_prompt_from_context(self, context: Dict, user_input: str) -> str:
         """
@@ -88,14 +119,12 @@ class LLM:
         Yields:
             str: Text chunks as they are generated (will be cleaned with clean_reply)
         """
-        if not self.api_key:
-            logger.warning("LLM: API key not set, returning fallback response")
-            yield "Извините, языковая модель не настроена."
-            return
-        
         if not self.llm:
-            logger.error("LLM: LangChain model not initialized")
-            yield "Извините, языковая модель не инициализирована."
+            if self.provider == "openrouter" and not OPENROUTER_API_KEY:
+                logger.warning("LLM: API key not set, returning fallback response")
+            else:
+                logger.error("LLM: LangChain model not initialized")
+            yield "Извините, языковая модель не настроена."
             return
         
         logger.info(f"LLM: Generating streaming response (user_input: {user_input[:50]}..., conversation turns: {len(context.get('conversation', []))})")

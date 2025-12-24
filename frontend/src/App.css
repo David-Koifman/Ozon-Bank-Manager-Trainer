@@ -8,3 +8,238 @@
   border-style: dashed;
 }
 
+/* Judgment visualization styles */
+.judgment-section {
+  margin-top: 30px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 30px;
+}
+
+.judgment-header {
+  margin-bottom: 25px;
+}
+
+.judgment-header h2 {
+  color: #333;
+  font-size: 1.8rem;
+  margin-bottom: 10px;
+}
+
+.judgment-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.judgment-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.judgment-card h3 {
+  color: #333;
+  font-size: 1.3rem;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 10px;
+}
+
+/* Overall Score */
+.overall-score {
+  text-align: center;
+}
+
+.score-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.score-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    #4caf50 0deg,
+    #4caf50 calc(var(--score) / var(--max-score) * 360deg),
+    #e0e0e0 calc(var(--score) / var(--max-score) * 360deg),
+    #e0e0e0 360deg
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.score-circle::before {
+  content: '';
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: white;
+}
+
+.score-value {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #333;
+  z-index: 1;
+  position: relative;
+}
+
+.score-max {
+  font-size: 1rem;
+  color: #666;
+  margin-left: 5px;
+}
+
+.quality-badge {
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.quality-excellent {
+  background: #d4edda;
+  color: #155724;
+}
+
+.quality-good {
+  background: #cfe2ff;
+  color: #084298;
+}
+
+.quality-average {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.quality-poor {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* Aspect Scores */
+.aspect-scores {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.aspect-item {
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.aspect-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.aspect-name {
+  font-weight: 600;
+  color: #333;
+  text-transform: capitalize;
+}
+
+.aspect-score {
+  font-weight: bold;
+  color: #667eea;
+  font-size: 1.1rem;
+}
+
+.score-bar {
+  width: 100%;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.score-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.aspect-comment {
+  font-size: 0.9rem;
+  color: #666;
+  margin: 0;
+  font-style: italic;
+}
+
+/* Strengths, Weaknesses, Recommendations */
+.judgment-card ul {
+  list-style: none;
+  padding: 0;
+}
+
+.judgment-card ul li {
+  padding: 10px 15px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border-left: 4px solid;
+}
+
+.strengths ul li {
+  background: #d4edda;
+  border-left-color: #28a745;
+  color: #155724;
+}
+
+.weaknesses ul li {
+  background: #fff3cd;
+  border-left-color: #ffc107;
+  color: #856404;
+}
+
+.recommendations ul li {
+  background: #cfe2ff;
+  border-left-color: #667eea;
+  color: #084298;
+}
+
+/* Session Stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.stat-label {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #333;
+}
+

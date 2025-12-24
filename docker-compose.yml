@@ -46,10 +46,20 @@ services:
       dockerfile: backend/Dockerfile
     container_name: operator_trainer_backend
     environment:
+      # LLM Provider: "openrouter" (default) or "ollama"
+      - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
+      # OpenRouter config (required if LLM_PROVIDER=openrouter)
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-qwen/qwen-2.5-7b-instruct}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      # Ollama config (required if LLM_PROVIDER=ollama)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      # Other services
       - DATABASE_URL=postgresql+asyncpg://operator_trainer:operator_trainer_pass@postgres:5432/operator_trainer_db
       - STT_SERVICE_URL=http://stt_service:8001
       - TTS_SERVICE_URL=http://tts_service:8002
+      - JUDGE_SERVICE_URL=http://judge_service:8003
     ports:
       - "8000:8000"
     depends_on:
@@ -59,9 +69,37 @@ services:
         condition: service_started
       tts_service:
         condition: service_started
+      judge_service:
+        condition: service_started
     volumes:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  judge_service:
+    build:
+      context: .
+      dockerfile: judge_service/Dockerfile
+    container_name: operator_trainer_judge
+    environment:
+      # LLM Provider: "openrouter" (default) or "ollama"
+      - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
+      # OpenRouter config (required if LLM_PROVIDER=openrouter)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      # Ollama config (required if LLM_PROVIDER=ollama)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      # Database
+      - DATABASE_URL=postgresql+asyncpg://operator_trainer:operator_trainer_pass@postgres:5432/operator_trainer_db
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./judge_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8003 --reload
 
   # frontend:
   #   build:

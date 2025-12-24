@@ -25,6 +25,7 @@ from components.tts_client import TTSClient
 from components.database import Database
 from components.vad_detector import VADDetector
 from components.audio_utils import pcm_to_wav
+from components.judge_client import JudgeClient
 
 app = FastAPI(title="Operator Voice Trainer")
 
@@ -45,6 +46,7 @@ stt = STTClient()
 llm = LLM()
 tts = TTSClient()
 database = Database()
+judge_client = JudgeClient()
 
 # Track active WebSocket connections
 active_websocket_connections: Set[WebSocket] = set()
@@ -73,6 +75,7 @@ async def shutdown():
     await database.close()
     await stt.close()
     await tts.close()
+    await judge_client.close()
 
 
 # Request/Response models
@@ -125,8 +128,18 @@ async def start_training(request: StartTrainingRequest):
 
 @app.post("/api/end-training")
 async def end_training(request: EndTrainingRequest):
-    """End a training session"""
+    """End a training session and judge it"""
     logger.info(f"Ending training session {request.session_id}")
+    
+    # Get session info before ending (to get parameters)
+    session_info = session_manager.get_session(request.session_id)
+    if not session_info:
+        raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+    
+    # Extract session parameters
+    behavior_archetype = session_info.get("behavior_archetype", "novice")
+    scenario = session_info.get("scenario", "free")
+    difficulty_level = session_info.get("difficulty_level", "1")
     
     message = {
         "action": "end_training",
@@ -143,6 +156,25 @@ async def end_training(request: EndTrainingRequest):
         tts=tts,
         database=database
     )
+    
+    # Call judge service after ending session
+    judgment = None
+    try:
+        judgment = await judge_client.judge_session(
+            session_id=request.session_id,
+            behavior_archetype=behavior_archetype,
+            scenario=scenario,
+            difficulty_level=difficulty_level
+        )
+        if judgment:
+            response["judgment"] = judgment
+            logger.info(f"Successfully judged session {request.session_id}")
+        else:
+            logger.warning(f"Judge service returned no judgment for session {request.session_id}")
+    except Exception as e:
+        logger.error(f"Error calling judge service: {str(e)}", exc_info=True)
+        # Don't fail the end-training request if judge fails
+        response["judgment_error"] = str(e)
     
     return response
 
