@@ -21,6 +21,10 @@ psycopg2-binary = "^2.9.0"
 python-dotenv = "^1.0.0"
 # Ollama client (for local LLM backend)
 ollama = "^0.1.0"
+# LangChain for structured output
+langchain = "^0.3.0"
+langchain-openai = "^0.2.0"
+langchain-community = "^0.3.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"

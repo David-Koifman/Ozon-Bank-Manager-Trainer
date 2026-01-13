@@ -19,21 +19,18 @@
 
 ## 🧱 Архитектура
 ```
-src/
-└── llm_judge/
-    ├── app.py          # FastAPI-приложение
-    ├── database.py     # Подключение к БД и модель TrainingSession
-    ├── models.py       # Pydantic-модели
-    ├── judge.py        # Основной класс LLMJudge
-    ├── parser.py       # Парсер ответов LLM
+judge_service/
+    ├── main.py              # FastAPI-приложение
+    ├── database.py          # Подключение к БД и модель TrainingSession
+    ├── models.py            # Pydantic-модели
+    ├── judge.py             # Основной класс LLMJudge
+    ├── parser.py            # Парсер ответов LLM
     ├── client_classifier.py # Классификация клиента
-    ├── backends/
-    │   └── ollama_backend.py
-    ├── spec/
-    │   ├── evaluation_spec.json
-    │   └── compliance_phrases.md
-    └── prompts/
-        └── judge_prompt.md
+    ├── scenarios.py         # Конфигурация сценариев
+    ├── judge_prompt.txt     # Единый промпт для оценки
+    └── backends/
+        ├── ollama_backend.py
+        └── openrouter_backend.py
 ```
 
 ---
