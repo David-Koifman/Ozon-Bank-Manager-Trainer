@@ -1,10 +1,31 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
+import { 
+  authenticatedFetch, 
+  login, 
+  register, 
+  logout, 
+  getToken, 
+  getUser, 
+  setUser 
+} from './auth'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/ws/call'
 
 function App() {
+  // Authentication state
+  const [user, setUserState] = useState(getUser())
+  const [isAuthenticated, setIsAuthenticated] = useState(!!getToken())
+  const [authMode, setAuthMode] = useState('login') // 'login' or 'register'
+  const [authEmail, setAuthEmail] = useState('')
+  const [authName, setAuthName] = useState('')
+  const [authRole, setAuthRole] = useState('manager')
+  const [authLoading, setAuthLoading] = useState(false)
+  const [view, setView] = useState('training') // 'training', 'my-sessions', 'statistics', 'coach-dashboard', 'session-detail'
+  const [selectedSession, setSelectedSession] = useState(null)
+  
+  // Training session state
   const [sessionId, setSessionId] = useState(null)
   const [sessionInfo, setSessionInfo] = useState(null)
   const [callActive, setCallActive] = useState(false)
@@ -16,11 +37,48 @@ function App() {
   const [judgment, setJudgment] = useState(null)
   const [judging, setJudging] = useState(false)
   
+  // Statistics state
+  const [mySessions, setMySessions] = useState([])
+  const [myStatistics, setMyStatistics] = useState(null)
+  const [allSessions, setAllSessions] = useState([])
+  const [usersStatistics, setUsersStatistics] = useState([])
+  const [loadingStats, setLoadingStats] = useState(false)
+  
   // Training parameters
   const [scenario, setScenario] = useState('free')
   const [speaker, setSpeaker] = useState('aidar')
   const [behaviorArchetype, setBehaviorArchetype] = useState('novice')
   const [difficultyLevel, setDifficultyLevel] = useState('1')
+  
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (getToken()) {
+        try {
+          const currentUser = await authenticatedFetch('/auth/me')
+          setUserState(currentUser)
+          setUser(currentUser)
+          setIsAuthenticated(true)
+        } catch (err) {
+          logout()
+          setIsAuthenticated(false)
+          setUserState(null)
+        }
+      }
+    }
+    checkAuth()
+  }, [])
+  
+  // Load statistics when view changes
+  useEffect(() => {
+    if (isAuthenticated && view === 'my-sessions') {
+      loadMySessions()
+      loadMyStatistics()
+    } else if (isAuthenticated && user?.role === 'coach' && view === 'coach-dashboard') {
+      loadAllSessions()
+      loadAllStatistics()
+    }
+  }, [view, isAuthenticated, user])
 
   // Refs for WebSocket and audio
   const wsRef = useRef(null)
@@ -31,14 +89,265 @@ function App() {
   const isPlayingRef = useRef(false)
   const playbackAudioContextRef = useRef(null)
 
+  // Authentication handlers
+  const handleLogin = async (e) => {
+    e.preventDefault()
+    setAuthLoading(true)
+    setError(null)
+    try {
+      const response = await login(authEmail)
+      setUserState(response.user)
+      setIsAuthenticated(true)
+      setView('training')
+    } catch (err) {
+      setError(`Login failed: ${err.message}`)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+  
+  const handleRegister = async (e) => {
+    e.preventDefault()
+    setAuthLoading(true)
+    setError(null)
+    try {
+      const response = await register(authEmail, authName, authRole)
+      setUserState(response.user)
+      setIsAuthenticated(true)
+      setView('training')
+    } catch (err) {
+      setError(`Registration failed: ${err.message}`)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+  
+  const handleLogout = () => {
+    logout()
+    setIsAuthenticated(false)
+    setUserState(null)
+    setView('training')
+    setSessionId(null)
+    setSessionInfo(null)
+    setConversationHistory([])
+    setJudgment(null)
+  }
+  
+  // Statistics loading functions
+  const loadMySessions = async () => {
+    try {
+      const data = await authenticatedFetch('/my-sessions')
+      setMySessions(data.sessions || [])
+    } catch (err) {
+      setError(`Failed to load sessions: ${err.message}`)
+    }
+  }
+  
+  const loadMyStatistics = async () => {
+    try {
+      const data = await authenticatedFetch('/my-statistics')
+      setMyStatistics(data)
+    } catch (err) {
+      setError(`Failed to load statistics: ${err.message}`)
+    }
+  }
+  
+  const loadAllSessions = async () => {
+    setLoadingStats(true)
+    try {
+      const data = await authenticatedFetch('/coach/sessions')
+      setAllSessions(data.sessions || [])
+    } catch (err) {
+      setError(`Failed to load all sessions: ${err.message}`)
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+  
+  const loadAllStatistics = async () => {
+    setLoadingStats(true)
+    try {
+      const data = await authenticatedFetch('/coach/statistics')
+      setUsersStatistics(data.users_statistics || [])
+    } catch (err) {
+      setError(`Failed to load statistics: ${err.message}`)
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+  
+  const toggleJudgment = (sessionId) => {
+    setExpandedJudgments(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(sessionId)) {
+        newSet.delete(sessionId)
+      } else {
+        newSet.add(sessionId)
+      }
+      return newSet
+    })
+  }
+  
+  // Component to render judgment details
+  const renderJudgmentDetails = (judgment, inline = false) => {
+    if (!judgment) return null
+    
+    const totalScore = judgment.total_score || 0
+    const maxScore = 10.0
+    const scoreRatio = totalScore / maxScore
+    const overallQuality = scoreRatio >= 0.9 ? 'excellent' : 
+                          scoreRatio >= 0.7 ? 'good' : 
+                          scoreRatio >= 0.5 ? 'average' : 'poor'
+    
+    const aspectScores = Object.entries(judgment.scores || {}).map(([criterion, value]) => {
+      let scoreValue = 0
+      if (criterion === 'politeness') {
+        scoreValue = typeof value === 'number' ? value : 0
+      } else {
+        scoreValue = value ? 10 : 0
+      }
+      return {
+        aspect: criterion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        score: scoreValue,
+        passed: value === true || (criterion === 'politeness' && value > 0)
+      }
+    })
+    
+    const summaryParts = []
+    if (judgment.feedback_positive && judgment.feedback_positive.length > 0) {
+      summaryParts.push(`Strengths: ${judgment.feedback_positive.slice(0, 2).join(', ')}`)
+    }
+    if (judgment.feedback_improvement && judgment.feedback_improvement.length > 0) {
+      summaryParts.push(`Areas for improvement: ${judgment.feedback_improvement.slice(0, 2).join(', ')}`)
+    }
+    const summary = summaryParts.join('. ') || 'Evaluation completed.'
+    
+    const wrapperClass = inline ? 'judgment-details' : 'judgment-section'
+    const contentClass = inline ? '' : 'judgment-content'
+    
+    const renderHeading = (text) => {
+      return inline ? <h4>{text}</h4> : <h3>{text}</h3>
+    }
+    
+    return (
+      <div className={wrapperClass}>
+        {!inline && (
+          <div className="judgment-header">
+            <h2>📊 Session Evaluation</h2>
+          </div>
+        )}
+        <div className={contentClass}>
+          {/* Overall Score */}
+          <div className="judgment-card overall-score">
+            {renderHeading('Overall Score')}
+            <div className="score-display">
+              <div className={`score-circle ${inline ? 'score-circle-inline' : ''}`} style={{
+                '--score': totalScore,
+                '--max-score': 10
+              }}>
+                <span className="score-value">{totalScore.toFixed(1)}</span>
+                <span className="score-max">/ 10</span>
+              </div>
+              <div className={`quality-badge quality-${overallQuality}`}>
+                {overallQuality === 'excellent' && '⭐ Excellent'}
+                {overallQuality === 'good' && '✓ Good'}
+                {overallQuality === 'average' && '→ Average'}
+                {overallQuality === 'poor' && '⚠ Poor'}
+              </div>
+            </div>
+          </div>
+
+          {/* Summary */}
+          <div className="judgment-card">
+            {renderHeading('Summary')}
+            <p>{summary}</p>
+          </div>
+
+          {/* Critical Errors */}
+          {judgment.critical_errors && judgment.critical_errors.length > 0 && (
+            <div className="judgment-card critical-errors">
+              {renderHeading('❌ Critical Errors')}
+              <ul>
+                {judgment.critical_errors.map((error, idx) => (
+                  <li key={idx} className="error-item">{error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Aspect Scores */}
+          {aspectScores.length > 0 && (
+            <div className="judgment-card">
+              {renderHeading('Detailed Scores')}
+              <div className="aspect-scores">
+                {aspectScores.map((aspect, idx) => (
+                  <div key={idx} className="aspect-item">
+                    <div className="aspect-header">
+                      <span className="aspect-name">{aspect.aspect}</span>
+                      <span className="aspect-score">{aspect.score}/10</span>
+                    </div>
+                    <div className="score-bar">
+                      <div 
+                        className="score-fill" 
+                        style={{ width: `${(aspect.score / 10) * 100}%` }}
+                      ></div>
+                    </div>
+                    <p className="aspect-comment">
+                      {aspect.passed ? '✓ Passed' : '✗ Failed'}: {aspect.aspect}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Strengths */}
+          {judgment.feedback_positive && judgment.feedback_positive.length > 0 && (
+            <div className="judgment-card strengths">
+              {renderHeading('✅ Strengths')}
+              <ul>
+                {judgment.feedback_positive.map((strength, idx) => (
+                  <li key={idx}>{strength}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Areas for Improvement */}
+          {judgment.feedback_improvement && judgment.feedback_improvement.length > 0 && (
+            <div className="judgment-card weaknesses">
+              {renderHeading('⚠️ Areas for Improvement')}
+              <ul>
+                {judgment.feedback_improvement.map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Recommendations */}
+          {judgment.recommendations && judgment.recommendations.length > 0 && (
+            <div className="judgment-card recommendations">
+              {renderHeading('💡 Recommendations')}
+              <ul>
+                {judgment.recommendations.map((rec, idx) => (
+                  <li key={idx}>{rec}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+  
   // Start training session
   const startSession = async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/start-training`, {
+      const data = await authenticatedFetch('/start-training', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scenario: scenario,
           speaker: speaker,
@@ -46,7 +355,6 @@ function App() {
           difficulty_level: difficultyLevel
         })
       })
-      const data = await response.json()
       setSessionId(data.session_id)
       setSessionInfo(data)
       setConversationHistory([])
@@ -66,18 +374,22 @@ function App() {
       setJudging(true)
       setJudgment(null)
       try {
-        const response = await fetch(`${API_BASE_URL}/end-training`, {
+        const data = await authenticatedFetch('/end-training', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: sessionId })
         })
-        const data = await response.json()
         
         // Check if judgment is included in response
         if (data.judgment) {
           setJudgment(data.judgment)
         } else if (data.judgment_error) {
           setError(`Failed to get judgment: ${data.judgment_error}`)
+        }
+        
+        // Refresh sessions list if on sessions view
+        if (view === 'my-sessions') {
+          loadMySessions()
+          loadMyStatistics()
         }
       } catch (err) {
         console.error('Error ending session:', err)
@@ -86,10 +398,6 @@ function App() {
         setJudging(false)
       }
     }
-    // Don't clear sessionId immediately - keep it to show judgment
-    // setSessionId(null)
-    // setSessionInfo(null)
-    // setConversationHistory([])
   }
   
   // Reset session (after viewing judgment)
@@ -363,6 +671,23 @@ function App() {
     setConversationHistory(prev => [...prev, message])
   }
 
+  // Navigate to session detail page
+  const viewSessionDetail = (session) => {
+    setSelectedSession(session)
+    setView('session-detail')
+  }
+  
+  // Navigate back to previous view
+  const backToPreviousView = () => {
+    setSelectedSession(null)
+    // Determine which view to go back to based on user role
+    if (user?.role === 'coach') {
+      setView('coach-dashboard')
+    } else {
+      setView('my-sessions')
+    }
+  }
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -371,14 +696,372 @@ function App() {
     }
   }, [])
 
+  // Show login/register if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="app">
+        <div className="header">
+          <h1>🎤 Operator Voice Trainer</h1>
+          <p>Real-time voice training with AI</p>
+        </div>
+        <div className="auth-container">
+          <div className="auth-card">
+            <div className="auth-tabs">
+              <button 
+                className={authMode === 'login' ? 'active' : ''}
+                onClick={() => setAuthMode('login')}
+              >
+                Login
+              </button>
+              <button 
+                className={authMode === 'register' ? 'active' : ''}
+                onClick={() => setAuthMode('register')}
+              >
+                Register
+              </button>
+            </div>
+            
+            {authMode === 'login' ? (
+              <form onSubmit={handleLogin}>
+                <div className="form-group">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    required
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={authLoading}>
+                  {authLoading ? 'Logging in...' : 'Login'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegister}>
+                <div className="form-group">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    required
+                    placeholder="your@email.com"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Name</label>
+                  <input
+                    type="text"
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                    required
+                    placeholder="Your Name"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Role</label>
+                  <select
+                    value={authRole}
+                    onChange={(e) => setAuthRole(e.target.value)}
+                  >
+                    <option value="manager">Manager</option>
+                    <option value="coach">Coach</option>
+                  </select>
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={authLoading}>
+                  {authLoading ? 'Registering...' : 'Register'}
+                </button>
+              </form>
+            )}
+            
+            {error && <div className="error-message">{error}</div>}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <div className="header">
         <h1>🎤 Operator Voice Trainer</h1>
-        <p>Real-time voice training with AI</p>
+        <div className="header-right">
+          <span className="user-info">
+            {user?.name} ({user?.role})
+          </span>
+          <button className="btn btn-secondary" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <div className="nav-tabs">
+        <button 
+          className={view === 'training' ? 'active' : ''}
+          onClick={() => setView('training')}
+        >
+          Training
+        </button>
+        <button 
+          className={view === 'my-sessions' ? 'active' : ''}
+          onClick={() => setView('my-sessions')}
+        >
+          My Sessions
+        </button>
+        <button 
+          className={view === 'statistics' ? 'active' : ''}
+          onClick={() => setView('statistics')}
+        >
+          My Statistics
+        </button>
+        {user?.role === 'coach' && (
+          <button 
+            className={view === 'coach-dashboard' ? 'active' : ''}
+            onClick={() => setView('coach-dashboard')}
+          >
+            Coach Dashboard
+          </button>
+        )}
       </div>
 
       <div className="content">
+        {/* My Sessions View */}
+        {view === 'my-sessions' && (
+          <div className="sessions-view">
+            <h2>My Training Sessions</h2>
+            {mySessions.length === 0 ? (
+              <p>No sessions yet. Start a training session to see it here.</p>
+            ) : (
+              <div className="sessions-list">
+                {mySessions.map((session) => (
+                  <div 
+                    key={session.id} 
+                    className="session-card clickable"
+                    onClick={() => viewSessionDetail(session)}
+                  >
+                    <div className="session-header">
+                      <h3>Session {session.session_id.substring(0, 8)}...</h3>
+                      <span className={`status-badge ${session.status}`}>
+                        {session.status}
+                      </span>
+                    </div>
+                    <div className="session-details">
+                      <p><strong>Scenario:</strong> {session.scenario}</p>
+                      <p><strong>Behavior:</strong> {session.behavior_archetype}</p>
+                      <p><strong>Difficulty:</strong> {session.difficulty_level}</p>
+                      <p><strong>Created:</strong> {new Date(session.created_at).toLocaleString()}</p>
+                      {session.judgment && (
+                        <div className="judgment-preview">
+                          <strong>Score:</strong> {session.judgment.total_score || 'N/A'}
+                          {session.judgment.critical_errors?.length > 0 && (
+                            <span className="error-badge">
+                              {session.judgment.critical_errors.length} errors
+                            </span>
+                          )}
+                          <span className="view-details-link">→ View Full Details</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* My Statistics View */}
+        {view === 'statistics' && (
+          <div className="statistics-view">
+            <h2>My Statistics</h2>
+            {myStatistics ? (
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <h3>Total Sessions</h3>
+                  <p className="stat-value">{myStatistics.total_sessions}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Completed</h3>
+                  <p className="stat-value">{myStatistics.completed_sessions}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Active</h3>
+                  <p className="stat-value">{myStatistics.active_sessions}</p>
+                </div>
+                <div className="stat-card">
+                  <h3>Average Score</h3>
+                  <p className="stat-value">{myStatistics.average_score || 'N/A'}</p>
+                </div>
+              </div>
+            ) : (
+              <p>Loading statistics...</p>
+            )}
+          </div>
+        )}
+
+        {/* Session Detail View */}
+        {view === 'session-detail' && selectedSession && (
+          <div className="session-detail-view">
+            <div className="session-detail-header">
+              <button className="btn btn-secondary" onClick={backToPreviousView}>
+                ← Back to {user?.role === 'coach' ? 'Dashboard' : 'My Sessions'}
+              </button>
+              <h2>Session Details</h2>
+            </div>
+            
+            <div className="session-detail-info">
+              <div className="session-info-card">
+                <h3>Session Information</h3>
+                <div className="info-grid">
+                  <div className="info-item">
+                    <strong>Session ID:</strong> {selectedSession.session_id}
+                  </div>
+                  {selectedSession.user_name && (
+                    <div className="info-item">
+                      <strong>Manager:</strong> {selectedSession.user_name} ({selectedSession.user_email})
+                    </div>
+                  )}
+                  <div className="info-item">
+                    <strong>Scenario:</strong> {selectedSession.scenario}
+                  </div>
+                  <div className="info-item">
+                    <strong>Behavior Archetype:</strong> {selectedSession.behavior_archetype}
+                  </div>
+                  <div className="info-item">
+                    <strong>Difficulty Level:</strong> {selectedSession.difficulty_level}
+                  </div>
+                  <div className="info-item">
+                    <strong>Status:</strong> 
+                    <span className={`status-badge ${selectedSession.status}`}>
+                      {selectedSession.status}
+                    </span>
+                  </div>
+                  <div className="info-item">
+                    <strong>Created:</strong> {new Date(selectedSession.created_at).toLocaleString()}
+                  </div>
+                  {selectedSession.ended_at && (
+                    <div className="info-item">
+                      <strong>Ended:</strong> {new Date(selectedSession.ended_at).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {selectedSession.judgment ? (
+                <div className="session-judgment-full-page">
+                  {renderJudgmentDetails(selectedSession.judgment, false)}
+                </div>
+              ) : (
+                <div className="no-judgment">
+                  <p>This session has not been evaluated yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Coach Dashboard View */}
+        {view === 'coach-dashboard' && user?.role === 'coach' && (
+          <div className="coach-dashboard">
+            <h2>Coach Dashboard</h2>
+            
+            {/* Per-User Statistics */}
+            <div className="dashboard-section">
+              <h3>Statistics by User</h3>
+              {loadingStats ? (
+                <p>Loading statistics...</p>
+              ) : usersStatistics.length === 0 ? (
+                <p>No users found.</p>
+              ) : (
+                <div className="users-statistics-list">
+                  {usersStatistics.map((userStat) => (
+                    <div key={userStat.user.id} className="user-statistics-card">
+                      <div className="user-statistics-header">
+                        <h4>{userStat.user.name}</h4>
+                        <span className="user-email">{userStat.user.email}</span>
+                        <span className={`role-badge ${userStat.user.role}`}>
+                          {userStat.user.role}
+                        </span>
+                      </div>
+                      <div className="user-stats-grid">
+                        <div className="stat-card">
+                          <h5>Total Sessions</h5>
+                          <p className="stat-value">{userStat.statistics.total_sessions}</p>
+                        </div>
+                        <div className="stat-card">
+                          <h5>Completed</h5>
+                          <p className="stat-value">{userStat.statistics.completed_sessions}</p>
+                        </div>
+                        <div className="stat-card">
+                          <h5>Active</h5>
+                          <p className="stat-value">{userStat.statistics.active_sessions}</p>
+                        </div>
+                        <div className="stat-card">
+                          <h5>Average Score</h5>
+                          <p className="stat-value">{userStat.statistics.average_score || 'N/A'}</p>
+                        </div>
+                        <div className="stat-card">
+                          <h5>Sessions with Scores</h5>
+                          <p className="stat-value">{userStat.statistics.sessions_with_scores}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* All Sessions */}
+            <div className="dashboard-section">
+              <h3>All Training Sessions</h3>
+              {loadingStats ? (
+                <p>Loading sessions...</p>
+              ) : allSessions.length === 0 ? (
+                <p>No sessions found.</p>
+              ) : (
+                <div className="sessions-list">
+                  {allSessions.map((session) => (
+                    <div 
+                      key={session.id} 
+                      className="session-card clickable"
+                      onClick={() => viewSessionDetail(session)}
+                    >
+                      <div className="session-header">
+                        <h3>Session {session.session_id.substring(0, 8)}...</h3>
+                        <span className={`status-badge ${session.status}`}>
+                          {session.status}
+                        </span>
+                      </div>
+                      <div className="session-details">
+                        <p><strong>Manager:</strong> {session.user_name} ({session.user_email})</p>
+                        <p><strong>Scenario:</strong> {session.scenario}</p>
+                        <p><strong>Behavior:</strong> {session.behavior_archetype}</p>
+                        <p><strong>Difficulty:</strong> {session.difficulty_level}</p>
+                        <p><strong>Created:</strong> {new Date(session.created_at).toLocaleString()}</p>
+                        {session.judgment && (
+                          <div className="judgment-preview">
+                            <strong>Score:</strong> {session.judgment.total_score || 'N/A'}
+                            {session.judgment.critical_errors?.length > 0 && (
+                              <span className="error-badge">
+                                {session.judgment.critical_errors.length} errors
+                              </span>
+                            )}
+                            <span className="view-details-link">→ View Full Details</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Training View */}
+        {view === 'training' && (
+          <>
         {/* Sidebar */}
         <div className="sidebar">
           <div className="session-info">
@@ -644,45 +1327,45 @@ function App() {
                   </div>
                 )}
 
-                {/* Strengths */}
-                {judgment.feedback_positive && judgment.feedback_positive.length > 0 && (
-                  <div className="judgment-card strengths">
-                    <h3>✅ Strengths</h3>
-                    <ul>
-                      {judgment.feedback_positive.map((strength, idx) => (
-                        <li key={idx}>{strength}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+        {/* Strengths */}
+        {judgment.feedback_positive && judgment.feedback_positive.length > 0 && (
+          <div className="judgment-card strengths">
+            {renderHeading('✅ Strengths')}
+            <ul>
+              {judgment.feedback_positive.map((strength, idx) => (
+                <li key={idx}>{strength}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-                {/* Areas for Improvement */}
-                {judgment.feedback_improvement && judgment.feedback_improvement.length > 0 && (
-                  <div className="judgment-card weaknesses">
-                    <h3>⚠️ Areas for Improvement</h3>
-                    <ul>
-                      {judgment.feedback_improvement.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+        {/* Areas for Improvement */}
+        {judgment.feedback_improvement && judgment.feedback_improvement.length > 0 && (
+          <div className="judgment-card weaknesses">
+            {renderHeading('⚠️ Areas for Improvement')}
+            <ul>
+              {judgment.feedback_improvement.map((item, idx) => (
+                <li key={idx}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-                {/* Recommendations */}
-                {judgment.recommendations && judgment.recommendations.length > 0 && (
-                  <div className="judgment-card recommendations">
-                    <h3>💡 Recommendations</h3>
-                    <ul>
-                      {judgment.recommendations.map((rec, idx) => (
-                        <li key={idx}>{rec}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+        {/* Recommendations */}
+        {judgment.recommendations && judgment.recommendations.length > 0 && (
+          <div className="judgment-card recommendations">
+            {renderHeading('💡 Recommendations')}
+            <ul>
+              {judgment.recommendations.map((rec, idx) => (
+                <li key={idx}>{rec}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-                {/* Additional Info */}
-                <div className="judgment-card stats">
-                  <h3>Session Information</h3>
+        {/* Additional Info */}
+        <div className="judgment-card stats">
+          {renderHeading('Session Information')}
                   <div className="stats-grid">
                     <div className="stat-item">
                       <span className="stat-label">Scenario</span>
@@ -708,6 +1391,8 @@ function App() {
             </div>
           )
         })()}
+          </>
+        )}
       </div>
     </div>
   )

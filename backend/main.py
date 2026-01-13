@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
@@ -22,10 +22,16 @@ from components.context import Context
 from components.stt_client import STTClient
 from components.llm import LLM
 from components.tts_client import TTSClient
-from components.database import Database
+from components.database import Database, UserRole
 from components.vad_detector import VADDetector
 from components.audio_utils import pcm_to_wav
 from components.judge_client import JudgeClient
+from components.auth import (
+    create_access_token, 
+    get_current_user, 
+    require_role, 
+    can_access_session
+)
 
 app = FastAPI(title="Operator Voice Trainer")
 
@@ -79,6 +85,16 @@ async def shutdown():
 
 
 # Request/Response models
+class LoginRequest(BaseModel):
+    email: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    name: str
+    role: str = "manager"  # "manager" or "coach"
+
+
 class StartTrainingRequest(BaseModel):
     scenario: str = "default"
     speaker: str = "aidar"  # Options: 'aidar', 'baya', 'kseniya', 'xenia', 'eugene'
@@ -90,12 +106,109 @@ class EndTrainingRequest(BaseModel):
     session_id: str
 
 
+# Authentication endpoints
+@app.post("/api/auth/register")
+async def register(request: RegisterRequest):
+    """Register a new user"""
+    try:
+        # Check if user already exists
+        existing_user = await database.get_user_by_email(request.email)
+        if existing_user:
+            raise HTTPException(status_code=400, detail="User with this email already exists")
+        
+        # Validate role
+        role = UserRole.MANAGER if request.role == "manager" else UserRole.COACH
+        
+        # Create user
+        user = await database.create_user(
+            email=request.email,
+            name=request.name,
+            role=role
+        )
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": str(user.id)})
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": user.role.value
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error registering user: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error registering user: {str(e)}")
+
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest):
+    """Login user (simple email-based login for demo)"""
+    try:
+        user = await database.get_user_by_email(request.email)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email")
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": str(user.id)})
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": user.role.value
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging in: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error logging in: {str(e)}")
+
+
+async def get_db_user(authorization: Optional[str] = Header(None)):
+    """Dependency to get current user with database"""
+    return await get_current_user(authorization=authorization, database=database)
+
+
+@app.get("/api/auth/me")
+async def get_current_user_info(current_user = Depends(get_db_user)):
+    """Get current user information"""
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.name,
+        "role": current_user.role.value
+    }
+
+
 @app.post("/api/start-training")
-async def start_training(request: StartTrainingRequest):
+async def start_training(
+    request: StartTrainingRequest,
+    current_user = Depends(get_db_user)
+):
     """Start a new training session"""
     try:
         session_id = str(uuid.uuid4())
-        logger.info(f"Starting training session {session_id} with scenario '{request.scenario}'")
+        logger.info(f"Starting training session {session_id} for user {current_user.id} with scenario '{request.scenario}'")
+        
+        # Create training session in database
+        training_session = await database.create_training_session(
+            session_id=session_id,
+            user_id=current_user.id,
+            scenario=request.scenario,
+            speaker=request.speaker,
+            behavior_archetype=request.behavior_archetype,
+            difficulty_level=request.difficulty_level
+        )
         
         message = {
             "action": "start_training",
@@ -116,7 +229,7 @@ async def start_training(request: StartTrainingRequest):
             database=database
         )
         
-        # Ensure session_id is in response (orchestrator should include it, but ensure it's there)
+        # Ensure session_id is in response
         if isinstance(response, dict) and "session_id" not in response:
             response["session_id"] = session_id
         
@@ -127,9 +240,20 @@ async def start_training(request: StartTrainingRequest):
 
 
 @app.post("/api/end-training")
-async def end_training(request: EndTrainingRequest):
+async def end_training(
+    request: EndTrainingRequest,
+    current_user = Depends(get_db_user)
+):
     """End a training session and judge it"""
     logger.info(f"Ending training session {request.session_id}")
+    
+    # Check if user can access this session
+    training_session = await database.get_training_session(request.session_id)
+    if not training_session:
+        raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+    
+    if not can_access_session(current_user, training_session.user_id):
+        raise HTTPException(status_code=403, detail="Access denied to this session")
     
     # Get session info before ending (to get parameters)
     session_info = session_manager.get_session(request.session_id)
@@ -168,6 +292,12 @@ async def end_training(request: EndTrainingRequest):
         )
         if judgment:
             response["judgment"] = judgment
+            # Save judgment to database
+            import json
+            await database.update_training_session_judgment(
+                request.session_id, 
+                json.dumps(judgment)
+            )
             logger.info(f"Successfully judged session {request.session_id}")
         else:
             logger.warning(f"Judge service returned no judgment for session {request.session_id}")
@@ -177,6 +307,115 @@ async def end_training(request: EndTrainingRequest):
         response["judgment_error"] = str(e)
     
     return response
+
+
+# Coach endpoints for viewing statistics
+@app.get("/api/my-sessions")
+async def get_my_sessions(current_user = Depends(get_db_user)):
+    """Get all training sessions for the current user"""
+    try:
+        sessions = await database.get_user_sessions(current_user.id)
+        return {
+            "sessions": [
+                {
+                    "id": s.id,
+                    "session_id": s.session_id,
+                    "scenario": s.scenario,
+                    "speaker": s.speaker,
+                    "behavior_archetype": s.behavior_archetype,
+                    "difficulty_level": s.difficulty_level,
+                    "status": s.status,
+                    "judgment": json.loads(s.judgment) if s.judgment else None,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "ended_at": s.ended_at.isoformat() if s.ended_at else None
+                }
+                for s in sessions
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting user sessions: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}")
+
+
+@app.get("/api/my-statistics")
+async def get_my_statistics(current_user = Depends(get_db_user)):
+    """Get statistics for the current user"""
+    try:
+        stats = await database.get_sessions_statistics(user_id=current_user.id)
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting user statistics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
+
+
+@app.get("/api/coach/sessions")
+async def get_all_sessions(
+    current_user = Depends(require_role([UserRole.COACH], database=database))
+):
+    """Get all training sessions (coaches only)"""
+    try:
+        sessions = await database.get_all_sessions()
+        return {
+            "sessions": [
+                {
+                    "id": s.id,
+                    "session_id": s.session_id,
+                    "user_id": s.user_id,
+                    "user_email": s.user.email if s.user else None,
+                    "user_name": s.user.name if s.user else None,
+                    "scenario": s.scenario,
+                    "speaker": s.speaker,
+                    "behavior_archetype": s.behavior_archetype,
+                    "difficulty_level": s.difficulty_level,
+                    "status": s.status,
+                    "judgment": json.loads(s.judgment) if s.judgment else None,
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "ended_at": s.ended_at.isoformat() if s.ended_at else None
+                }
+                for s in sessions
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting all sessions: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting sessions: {str(e)}")
+
+
+@app.get("/api/coach/statistics")
+async def get_all_statistics(
+    current_user = Depends(require_role([UserRole.COACH], database=database))
+):
+    """Get statistics for all users grouped by user (coaches only)"""
+    try:
+        user_stats = await database.get_all_users_statistics()
+        return {
+            "users_statistics": user_stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting all statistics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
+
+
+@app.get("/api/coach/user-statistics/{user_id}")
+async def get_user_statistics(
+    user_id: int,
+    current_user = Depends(require_role([UserRole.COACH], database=database))
+):
+    """Get statistics for a specific user (coaches only)"""
+    try:
+        stats = await database.get_sessions_statistics(user_id=user_id)
+        user = await database.get_user_by_id(user_id)
+        return {
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": user.role.value
+            },
+            "statistics": stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting user statistics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting user statistics: {str(e)}")
 
 
 @app.get("/")
