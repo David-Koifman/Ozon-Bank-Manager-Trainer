@@ -13,17 +13,21 @@ A real-time voice training system for call center operators with AI-powered eval
 
 1. **Create `.env` file** in the root directory (see example below)
 
-2. **Start all services:**
+2. Download T-One STT models from [Google Drive](https://drive.google.com/drive/folders/1VPnN8XAr2ads2HqjbrIMEPqXgaOvNW4u?usp=sharing) and place them to stt_service/tone_models/
+
+![tone_models](./media/Screenshot%202026-01-18%20at%2023.01.43.png)
+
+3. **Start all services:**
    ```bash
    docker-compose up -d
    ```
 
-3. **Access the application:**
+4. **Access the application:**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
    - API Docs: http://localhost:8000/docs
 
-4. **Stop all services:**
+5. **Stop all services:**
    ```bash
    docker-compose down
    ```
