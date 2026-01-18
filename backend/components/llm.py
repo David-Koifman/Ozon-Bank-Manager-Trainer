@@ -65,6 +65,12 @@ class LLM:
                     temperature=0.7,
                     max_tokens=500,
                     timeout=30.0,
+                    extra_body={
+                        "reasoning": {
+                            # "effort": "none",
+                            "max_tokens": 0
+                        }
+                    },
                 )
                 logger.info(f"LLM: Initialized with OpenRouter model {self.model}")
         else:

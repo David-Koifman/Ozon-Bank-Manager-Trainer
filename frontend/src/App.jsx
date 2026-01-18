@@ -74,6 +74,9 @@ function App() {
     if (isAuthenticated && view === 'my-sessions') {
       loadMySessions()
       loadMyStatistics()
+    } else if (isAuthenticated && view === 'statistics') {
+      loadMySessions()
+      loadMyStatistics()
     } else if (isAuthenticated && user?.role === 'coach' && view === 'coach-dashboard') {
       loadAllSessions()
       loadAllStatistics()
@@ -188,6 +191,196 @@ function App() {
     })
   }
   
+  // Helper function to get color from score (0-10, red to green)
+  const getScoreColor = (score) => {
+    // Clamp score between 0 and 10
+    const clampedScore = Math.max(0, Math.min(10, score))
+    const ratio = clampedScore / 10
+    
+    // Muted colors: red (#c62828) to green (#2e7d32)
+    // Using muted/subdued colors as requested
+    const red = { r: 198, g: 40, b: 40 }   // #c62828 - muted red
+    const green = { r: 46, g: 125, b: 50 } // #2e7d32 - muted green
+    
+    // Interpolate between red and green
+    const r = Math.round(red.r + (green.r - red.r) * ratio)
+    const g = Math.round(red.g + (green.g - red.g) * ratio)
+    const b = Math.round(red.b + (green.b - red.b) * ratio)
+    
+    return `rgb(${r}, ${g}, ${b})`
+  }
+
+  // Helper function to render score progression chart
+  const renderScoreChart = (sessions) => {
+    // Prepare chart data from sessions
+    const sessionsWithScores = sessions
+      .filter(s => s.judgment && s.judgment.total_score !== undefined && s.judgment.total_score !== null)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      .map((s, index) => ({
+        sessionNumber: index + 1,
+        score: s.judgment.total_score,
+        date: new Date(s.created_at)
+      }))
+    
+    if (sessionsWithScores.length === 0) {
+      return (
+        <div className="chart-container">
+          <h3>Score Progression</h3>
+          <p className="no-data-message">No completed sessions with scores yet.</p>
+        </div>
+      )
+    }
+    
+    // Chart dimensions
+    const chartWidth = 800
+    const chartHeight = 300
+    const padding = { top: 20, right: 20, bottom: 40, left: 50 }
+    const innerWidth = chartWidth - padding.left - padding.right
+    const innerHeight = chartHeight - padding.top - padding.bottom
+    
+    // Calculate scales
+    const maxScore = 10
+    const minScore = 0
+    const scoreRange = maxScore - minScore
+    
+    const xScale = (sessionNum) => 
+      padding.left + ((sessionNum - 1) / (sessionsWithScores.length - 1 || 1)) * innerWidth
+    
+    const yScale = (score) => 
+      padding.top + innerHeight - ((score - minScore) / scoreRange) * innerHeight
+    
+    // Generate path for line
+    const pathData = sessionsWithScores.map((point, idx) => {
+      const x = xScale(point.sessionNumber)
+      const y = yScale(point.score)
+      return idx === 0 ? `M ${x} ${y}` : `L ${x} ${y}`
+    }).join(' ')
+    
+    // Generate points
+    const points = sessionsWithScores.map(point => ({
+      x: xScale(point.sessionNumber),
+      y: yScale(point.score),
+      score: point.score,
+      sessionNumber: point.sessionNumber
+    }))
+    
+    return (
+      <div className="chart-container">
+        <h3>Score Progression</h3>
+        <div className="chart-wrapper">
+          <svg width={chartWidth} height={chartHeight} className="score-chart">
+            {/* Grid lines */}
+            {[0, 2, 4, 6, 8, 10].map(score => {
+              const y = yScale(score)
+              return (
+                <line
+                  key={score}
+                  x1={padding.left}
+                  y1={y}
+                  x2={chartWidth - padding.right}
+                  y2={y}
+                  stroke="#e5e5e5"
+                  strokeWidth="1"
+                />
+              )
+            })}
+            
+            {/* Y-axis labels */}
+            {[0, 2, 4, 6, 8, 10].map(score => {
+              const y = yScale(score)
+              return (
+                <text
+                  key={score}
+                  x={padding.left - 10}
+                  y={y + 4}
+                  textAnchor="end"
+                  fontSize="12"
+                  fill="#666"
+                >
+                  {score}
+                </text>
+              )
+            })}
+            
+            {/* X-axis labels */}
+            {sessionsWithScores.map((point, idx) => {
+              if (idx % Math.ceil(sessionsWithScores.length / 10) === 0 || idx === sessionsWithScores.length - 1) {
+                const x = xScale(point.sessionNumber)
+                return (
+                  <text
+                    key={idx}
+                    x={x}
+                    y={chartHeight - padding.bottom + 20}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fill="#666"
+                  >
+                    {point.sessionNumber}
+                  </text>
+                )
+              }
+              return null
+            })}
+            
+            {/* Axes */}
+            <line
+              x1={padding.left}
+              y1={padding.top}
+              x2={padding.left}
+              y2={chartHeight - padding.bottom}
+              stroke="#1a1a1a"
+              strokeWidth="2"
+            />
+            <line
+              x1={padding.left}
+              y1={chartHeight - padding.bottom}
+              x2={chartWidth - padding.right}
+              y2={chartHeight - padding.bottom}
+              stroke="#1a1a1a"
+              strokeWidth="2"
+            />
+            
+            {/* Line */}
+            <path
+              d={pathData}
+              fill="none"
+              stroke="#1a1a1a"
+              strokeWidth="2"
+              className="score-line"
+            />
+            
+            {/* Points */}
+            {points.map((point, idx) => {
+              const pointColor = getScoreColor(point.score)
+              return (
+                <circle
+                  key={idx}
+                  cx={point.x}
+                  cy={point.y}
+                  r="4"
+                  fill={pointColor}
+                  stroke="#1a1a1a"
+                  strokeWidth="1"
+                  className="score-point"
+                />
+              )
+            })}
+          </svg>
+        </div>
+        <div className="chart-legend">
+          <div className="legend-item">
+            <span className="legend-label">X-axis:</span>
+            <span>Session Number</span>
+          </div>
+          <div className="legend-item">
+            <span className="legend-label">Y-axis:</span>
+            <span>Overall Score (0-10)</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Component to render judgment details
   const renderJudgmentDetails = (judgment, inline = false) => {
     if (!judgment) return null
@@ -198,6 +391,9 @@ function App() {
     const overallQuality = scoreRatio >= 0.9 ? 'excellent' : 
                           scoreRatio >= 0.7 ? 'good' : 
                           scoreRatio >= 0.5 ? 'average' : 'poor'
+    
+    // Get color for overall score
+    const overallScoreColor = getScoreColor(totalScore)
     
     const aspectScores = Object.entries(judgment.scores || {}).map(([criterion, value]) => {
       let scoreValue = 0
@@ -233,40 +429,39 @@ function App() {
       <div className={wrapperClass}>
         {!inline && (
           <div className="judgment-header">
-            <h2>📊 Session Evaluation</h2>
+            <h2>Session Evaluation</h2>
           </div>
         )}
         <div className={contentClass}>
           {/* Overall Score */}
           <div className="judgment-card overall-score">
-            {renderHeading('Overall Score')}
             <div className="score-display">
               <div className={`score-circle ${inline ? 'score-circle-inline' : ''}`} style={{
                 '--score': totalScore,
-                '--max-score': 10
+                '--max-score': 10,
+                '--score-color': overallScoreColor,
+                borderColor: overallScoreColor
               }}>
-                <span className="score-value">{totalScore.toFixed(1)}</span>
+                <span className="score-value" style={{ color: overallScoreColor }}>{totalScore.toFixed(1)}</span>
                 <span className="score-max">/ 10</span>
               </div>
-              <div className={`quality-badge quality-${overallQuality}`}>
-                {overallQuality === 'excellent' && '⭐ Excellent'}
-                {overallQuality === 'good' && '✓ Good'}
-                {overallQuality === 'average' && '→ Average'}
-                {overallQuality === 'poor' && '⚠ Poor'}
+              <div className={`quality-badge quality-${overallQuality}`} style={{
+                borderColor: overallScoreColor,
+                color: overallScoreColor
+              }}>
+                      {overallQuality === 'excellent' && 'Excellent'}
+                      {overallQuality === 'good' && 'Good'}
+                      {overallQuality === 'average' && 'Average'}
+                      {overallQuality === 'poor' && 'Poor'}
               </div>
             </div>
           </div>
 
-          {/* Summary */}
-          <div className="judgment-card">
-            {renderHeading('Summary')}
-            <p>{summary}</p>
-          </div>
 
           {/* Critical Errors */}
           {judgment.critical_errors && judgment.critical_errors.length > 0 && (
             <div className="judgment-card critical-errors">
-              {renderHeading('❌ Critical Errors')}
+              {renderHeading('Critical Errors')}
               <ul>
                 {judgment.critical_errors.map((error, idx) => (
                   <li key={idx} className="error-item">{error}</li>
@@ -280,23 +475,29 @@ function App() {
             <div className="judgment-card">
               {renderHeading('Detailed Scores')}
               <div className="aspect-scores">
-                {aspectScores.map((aspect, idx) => (
-                  <div key={idx} className="aspect-item">
-                    <div className="aspect-header">
-                      <span className="aspect-name">{aspect.aspect}</span>
-                      <span className="aspect-score">{aspect.score}/10</span>
+                {aspectScores.map((aspect, idx) => {
+                  const aspectColor = getScoreColor(aspect.score)
+                  return (
+                    <div key={idx} className="aspect-item">
+                      <div className="aspect-header">
+                        <span className="aspect-name">{aspect.aspect}</span>
+                        <span className="aspect-score" style={{ color: aspectColor }}>{aspect.score}/10</span>
+                      </div>
+                      <div className="score-bar">
+                        <div 
+                          className="score-fill" 
+                          style={{ 
+                            width: `${(aspect.score / 10) * 100}%`,
+                            backgroundColor: aspectColor
+                          }}
+                        ></div>
+                      </div>
+                      <p className="aspect-comment">
+                              {aspect.passed ? 'Passed' : 'Failed'}: {aspect.aspect}
+                      </p>
                     </div>
-                    <div className="score-bar">
-                      <div 
-                        className="score-fill" 
-                        style={{ width: `${(aspect.score / 10) * 100}%` }}
-                      ></div>
-                    </div>
-                    <p className="aspect-comment">
-                      {aspect.passed ? '✓ Passed' : '✗ Failed'}: {aspect.aspect}
-                    </p>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -304,7 +505,7 @@ function App() {
           {/* Strengths */}
           {judgment.feedback_positive && judgment.feedback_positive.length > 0 && (
             <div className="judgment-card strengths">
-              {renderHeading('✅ Strengths')}
+              {renderHeading('Strengths')}
               <ul>
                 {judgment.feedback_positive.map((strength, idx) => (
                   <li key={idx}>{strength}</li>
@@ -316,7 +517,7 @@ function App() {
           {/* Areas for Improvement */}
           {judgment.feedback_improvement && judgment.feedback_improvement.length > 0 && (
             <div className="judgment-card weaknesses">
-              {renderHeading('⚠️ Areas for Improvement')}
+              {renderHeading('Areas for Improvement')}
               <ul>
                 {judgment.feedback_improvement.map((item, idx) => (
                   <li key={idx}>{item}</li>
@@ -328,7 +529,7 @@ function App() {
           {/* Recommendations */}
           {judgment.recommendations && judgment.recommendations.length > 0 && (
             <div className="judgment-card recommendations">
-              {renderHeading('💡 Recommendations')}
+              {renderHeading('Recommendations')}
               <ul>
                 {judgment.recommendations.map((rec, idx) => (
                   <li key={idx}>{rec}</li>
@@ -416,9 +617,40 @@ function App() {
       return
     }
 
+    // Check if getUserMedia is available
+    let getUserMediaFunc = null
+    
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      getUserMediaFunc = (constraints) => navigator.mediaDevices.getUserMedia(constraints)
+    } else if (navigator.getUserMedia) {
+      // Legacy API - wrap in Promise
+      getUserMediaFunc = (constraints) => {
+        return new Promise((resolve, reject) => {
+          navigator.getUserMedia(constraints, resolve, reject)
+        })
+      }
+    } else if (navigator.webkitGetUserMedia) {
+      getUserMediaFunc = (constraints) => {
+        return new Promise((resolve, reject) => {
+          navigator.webkitGetUserMedia(constraints, resolve, reject)
+        })
+      }
+    } else if (navigator.mozGetUserMedia) {
+      getUserMediaFunc = (constraints) => {
+        return new Promise((resolve, reject) => {
+          navigator.mozGetUserMedia(constraints, resolve, reject)
+        })
+      }
+    }
+    
+    if (!getUserMediaFunc) {
+      setError('Microphone access is not available. Please ensure you are using HTTPS (or localhost) and a modern browser that supports microphone access.')
+      return
+    }
+
     try {
       // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await getUserMediaFunc({ 
         audio: {
           sampleRate: 16000,
           channelCount: 1,
@@ -701,7 +933,7 @@ function App() {
     return (
       <div className="app">
         <div className="header">
-          <h1>🎤 Operator Voice Trainer</h1>
+          <h1>Operator Voice Trainer</h1>
           <p>Real-time voice training with AI</p>
         </div>
         <div className="auth-container">
@@ -785,7 +1017,7 @@ function App() {
   return (
     <div className="app">
       <div className="header">
-        <h1>🎤 Operator Voice Trainer</h1>
+        <h1>Operator Voice Trainer</h1>
         <div className="header-right">
           <span className="user-info">
             {user?.name} ({user?.role})
@@ -860,7 +1092,7 @@ function App() {
                               {session.judgment.critical_errors.length} errors
                             </span>
                           )}
-                          <span className="view-details-link">→ View Full Details</span>
+                          <span className="view-details-link">View Full Details</span>
                         </div>
                       )}
                     </div>
@@ -876,24 +1108,29 @@ function App() {
           <div className="statistics-view">
             <h2>My Statistics</h2>
             {myStatistics ? (
-              <div className="stats-grid">
-                <div className="stat-card">
-                  <h3>Total Sessions</h3>
-                  <p className="stat-value">{myStatistics.total_sessions}</p>
+              <>
+                <div className="stats-grid">
+                  <div className="stat-card">
+                    <h3>Total Sessions</h3>
+                    <p className="stat-value">{myStatistics.total_sessions}</p>
+                  </div>
+                  <div className="stat-card">
+                    <h3>Completed</h3>
+                    <p className="stat-value">{myStatistics.completed_sessions}</p>
+                  </div>
+                  <div className="stat-card">
+                    <h3>Active</h3>
+                    <p className="stat-value">{myStatistics.active_sessions}</p>
+                  </div>
+                  <div className="stat-card">
+                    <h3>Average Score</h3>
+                    <p className="stat-value">{myStatistics.average_score || 'N/A'}</p>
+                  </div>
                 </div>
-                <div className="stat-card">
-                  <h3>Completed</h3>
-                  <p className="stat-value">{myStatistics.completed_sessions}</p>
-                </div>
-                <div className="stat-card">
-                  <h3>Active</h3>
-                  <p className="stat-value">{myStatistics.active_sessions}</p>
-                </div>
-                <div className="stat-card">
-                  <h3>Average Score</h3>
-                  <p className="stat-value">{myStatistics.average_score || 'N/A'}</p>
-                </div>
-              </div>
+                
+                {/* Score Progression Chart */}
+                {renderScoreChart(mySessions)}
+              </>
             ) : (
               <p>Loading statistics...</p>
             )}
@@ -975,39 +1212,46 @@ function App() {
                 <p>No users found.</p>
               ) : (
                 <div className="users-statistics-list">
-                  {usersStatistics.map((userStat) => (
-                    <div key={userStat.user.id} className="user-statistics-card">
-                      <div className="user-statistics-header">
-                        <h4>{userStat.user.name}</h4>
-                        <span className="user-email">{userStat.user.email}</span>
-                        <span className={`role-badge ${userStat.user.role}`}>
-                          {userStat.user.role}
-                        </span>
+                  {usersStatistics.map((userStat) => {
+                    // Filter sessions for this user
+                    const userSessions = allSessions.filter(s => s.user_id === userStat.user.id)
+                    
+                    return (
+                      <div key={userStat.user.id} className="user-statistics-card">
+                        <div className="user-statistics-header">
+                          <h4>{userStat.user.name}</h4>
+                          <span className="user-email">{userStat.user.email}</span>
+                          <span className={`role-badge ${userStat.user.role}`}>
+                            {userStat.user.role}
+                          </span>
+                        </div>
+                        <div className="user-stats-grid">
+                          <div className="stat-card">
+                            <h5>Total Sessions</h5>
+                            <p className="stat-value">{userStat.statistics.total_sessions}</p>
+                          </div>
+                          <div className="stat-card">
+                            <h5>Completed</h5>
+                            <p className="stat-value">{userStat.statistics.completed_sessions}</p>
+                          </div>
+                          <div className="stat-card">
+                            <h5>Active</h5>
+                            <p className="stat-value">{userStat.statistics.active_sessions}</p>
+                          </div>
+                          <div className="stat-card">
+                            <h5>Average Score</h5>
+                            <p className="stat-value">{userStat.statistics.average_score || 'N/A'}</p>
+                          </div>
+                          <div className="stat-card">
+                            <h5>Sessions with Scores</h5>
+                            <p className="stat-value">{userStat.statistics.sessions_with_scores}</p>
+                          </div>
+                        </div>
+                        {/* Score Progression Chart for this user */}
+                        {renderScoreChart(userSessions)}
                       </div>
-                      <div className="user-stats-grid">
-                        <div className="stat-card">
-                          <h5>Total Sessions</h5>
-                          <p className="stat-value">{userStat.statistics.total_sessions}</p>
-                        </div>
-                        <div className="stat-card">
-                          <h5>Completed</h5>
-                          <p className="stat-value">{userStat.statistics.completed_sessions}</p>
-                        </div>
-                        <div className="stat-card">
-                          <h5>Active</h5>
-                          <p className="stat-value">{userStat.statistics.active_sessions}</p>
-                        </div>
-                        <div className="stat-card">
-                          <h5>Average Score</h5>
-                          <p className="stat-value">{userStat.statistics.average_score || 'N/A'}</p>
-                        </div>
-                        <div className="stat-card">
-                          <h5>Sessions with Scores</h5>
-                          <p className="stat-value">{userStat.statistics.sessions_with_scores}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -1047,7 +1291,7 @@ function App() {
                                 {session.judgment.critical_errors.length} errors
                               </span>
                             )}
-                            <span className="view-details-link">→ View Full Details</span>
+                            <span className="view-details-link">View Full Details</span>
                           </div>
                         )}
                       </div>
@@ -1163,14 +1407,14 @@ function App() {
         {sessionId && (
           <div className="conversation-section">
             <div className="conversation-header">
-              <h2>💬 Conversation</h2>
+              <h2>Conversation</h2>
             </div>
 
             {/* Chat container */}
             <div className="chat-container">
               {conversationHistory.length === 0 && !partialTranscription ? (
                 <div className="loading">
-                  💡 Start a conversation by clicking "Start Call" and speaking.
+                  Start a conversation by clicking "Start Call" and speaking.
                 </div>
               ) : (
                 <>
@@ -1207,11 +1451,11 @@ function App() {
             <div className="audio-controls">
               {!callActive ? (
                 <button className="btn btn-primary" onClick={startCall}>
-                  📞 Start Call
+                  Start Call
                 </button>
               ) : (
                 <button className="btn btn-danger" onClick={stopCall}>
-                  📴 End Call
+                  End Call
                 </button>
               )}
               <div className={`status-indicator status-${callStatus}`}>
@@ -1259,40 +1503,46 @@ function App() {
           return (
             <div className="judgment-section">
               <div className="judgment-header">
-                <h2>📊 Session Evaluation</h2>
+                <h2>Session Evaluation</h2>
               </div>
               
               <div className="judgment-content">
                 {/* Overall Score */}
                 <div className="judgment-card overall-score">
-                  <h3>Overall Score</h3>
                   <div className="score-display">
-                    <div className="score-circle" style={{
-                      '--score': totalScore,
-                      '--max-score': 10
-                    }}>
-                      <span className="score-value">{totalScore.toFixed(1)}</span>
-                      <span className="score-max">/ 10</span>
-                    </div>
-                    <div className={`quality-badge quality-${overallQuality}`}>
-                      {overallQuality === 'excellent' && '⭐ Excellent'}
-                      {overallQuality === 'good' && '✓ Good'}
-                      {overallQuality === 'average' && '→ Average'}
-                      {overallQuality === 'poor' && '⚠ Poor'}
-                    </div>
+                    {(() => {
+                      const overallScoreColor = getScoreColor(totalScore)
+                      return (
+                        <>
+                          <div className="score-circle" style={{
+                            '--score': totalScore,
+                            '--max-score': 10,
+                            '--score-color': overallScoreColor,
+                            borderColor: overallScoreColor
+                          }}>
+                            <span className="score-value" style={{ color: overallScoreColor }}>{totalScore.toFixed(1)}</span>
+                            <span className="score-max">/ 10</span>
+                          </div>
+                          <div className={`quality-badge quality-${overallQuality}`} style={{
+                            borderColor: overallScoreColor,
+                            color: overallScoreColor
+                          }}>
+                            {overallQuality === 'excellent' && 'Excellent'}
+                            {overallQuality === 'good' && 'Good'}
+                            {overallQuality === 'average' && 'Average'}
+                            {overallQuality === 'poor' && 'Poor'}
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
 
-                {/* Summary */}
-                <div className="judgment-card">
-                  <h3>Summary</h3>
-                  <p>{summary}</p>
-                </div>
 
                 {/* Critical Errors */}
                 {judgment.critical_errors && judgment.critical_errors.length > 0 && (
                   <div className="judgment-card critical-errors">
-                    <h3>❌ Critical Errors</h3>
+                    <h3>Critical Errors</h3>
                     <ul>
                       {judgment.critical_errors.map((error, idx) => (
                         <li key={idx} className="error-item">{error}</li>
@@ -1306,23 +1556,29 @@ function App() {
                   <div className="judgment-card">
                     <h3>Detailed Scores</h3>
                     <div className="aspect-scores">
-                      {aspectScores.map((aspect, idx) => (
-                        <div key={idx} className="aspect-item">
-                          <div className="aspect-header">
-                            <span className="aspect-name">{aspect.aspect}</span>
-                            <span className="aspect-score">{aspect.score}/10</span>
+                      {aspectScores.map((aspect, idx) => {
+                        const aspectColor = getScoreColor(aspect.score)
+                        return (
+                          <div key={idx} className="aspect-item">
+                            <div className="aspect-header">
+                              <span className="aspect-name">{aspect.aspect}</span>
+                              <span className="aspect-score" style={{ color: aspectColor }}>{aspect.score}/10</span>
+                            </div>
+                            <div className="score-bar">
+                              <div 
+                                className="score-fill" 
+                                style={{ 
+                                  width: `${(aspect.score / 10) * 100}%`,
+                                  backgroundColor: aspectColor
+                                }}
+                              ></div>
+                            </div>
+                            <p className="aspect-comment">
+                              {aspect.passed ? 'Passed' : 'Failed'}: {aspect.aspect}
+                            </p>
                           </div>
-                          <div className="score-bar">
-                            <div 
-                              className="score-fill" 
-                              style={{ width: `${(aspect.score / 10) * 100}%` }}
-                            ></div>
-                          </div>
-                          <p className="aspect-comment">
-                            {aspect.passed ? '✓ Passed' : '✗ Failed'}: {aspect.aspect}
-                          </p>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -1330,7 +1586,7 @@ function App() {
         {/* Strengths */}
         {judgment.feedback_positive && judgment.feedback_positive.length > 0 && (
           <div className="judgment-card strengths">
-            {renderHeading('✅ Strengths')}
+            <h3>Strengths</h3>
             <ul>
               {judgment.feedback_positive.map((strength, idx) => (
                 <li key={idx}>{strength}</li>
@@ -1342,7 +1598,7 @@ function App() {
         {/* Areas for Improvement */}
         {judgment.feedback_improvement && judgment.feedback_improvement.length > 0 && (
           <div className="judgment-card weaknesses">
-            {renderHeading('⚠️ Areas for Improvement')}
+            <h3>Areas for Improvement</h3>
             <ul>
               {judgment.feedback_improvement.map((item, idx) => (
                 <li key={idx}>{item}</li>
@@ -1354,7 +1610,7 @@ function App() {
         {/* Recommendations */}
         {judgment.recommendations && judgment.recommendations.length > 0 && (
           <div className="judgment-card recommendations">
-            {renderHeading('💡 Recommendations')}
+            <h3>Recommendations</h3>
             <ul>
               {judgment.recommendations.map((rec, idx) => (
                 <li key={idx}>{rec}</li>
@@ -1365,7 +1621,7 @@ function App() {
 
         {/* Additional Info */}
         <div className="judgment-card stats">
-          {renderHeading('Session Information')}
+          <h3>Session Information</h3>
                   <div className="stats-grid">
                     <div className="stat-item">
                       <span className="stat-label">Scenario</span>

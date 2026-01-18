@@ -65,6 +65,12 @@ class LLMJudge:
                     "X-Title": "Judge Service",
                 },
                 temperature=0.2,
+                extra_body={
+                    "reasoning": {
+                        # "effort": "none",
+                        "max_tokens": 0
+                    }
+                },
             )
             self.backend_name = "openrouter"
             self.use_structured_output = True  # OpenAI-compatible APIs support structured output
