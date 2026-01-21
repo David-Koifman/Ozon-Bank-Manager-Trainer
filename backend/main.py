@@ -307,6 +307,84 @@ async def end_training(
         response["judgment_error"] = str(e)
     
     return response
+    
+
+@app.get("/api/sessions/{session_id}")
+async def get_session_detail(
+    session_id: str,
+    current_user = Depends(get_db_user),
+):
+    """
+    Get full session details including transcript and judgment.
+    """
+    # Fetch session from database
+    training_session = await database.get_training_session(session_id)
+    if not training_session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    
+    # Permission check
+    if not can_access_session(current_user, training_session.user_id):
+        raise HTTPException(status_code=403, detail="Access denied to this session")
+    
+    # Load judgment JSON, if any
+    judgment_data = None
+    if training_session.judgment:
+        try:
+            judgment_data = json.loads(training_session.judgment)
+        except Exception as e:
+            logger.error(
+                "Error parsing judgment JSON for session %s: %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
+    
+    # Load transcript, if possible
+    transcript = []
+    try:
+        transcript = await database.get_session_transcript(session_id)
+    except Exception as e:
+        logger.error(
+            "Error getting transcript for session %s: %s",
+            session_id,
+            str(e),
+            exc_info=True,
+        )
+
+    # Load user info separately to avoid detached instance issues
+    user_email = None
+    user_name = None
+    try:
+        from components.database import User  # type: ignore  # for type checkers only
+        user = await database.get_user_by_id(training_session.user_id)
+        if user:
+            user_email = user.email
+            user_name = user.name
+    except Exception as e:
+        logger.error(
+            "Error getting user info for session %s: %s",
+            session_id,
+            str(e),
+            exc_info=True,
+        )
+    
+    # Build response payload
+    return {
+        "id": training_session.id,
+        "session_id": training_session.session_id,
+        "user_id": training_session.user_id,
+        "user_email": user_email,
+        "user_name": user_name,
+        "scenario": training_session.scenario,
+        "speaker": training_session.speaker,
+        "behavior_archetype": training_session.behavior_archetype,
+        "difficulty_level": training_session.difficulty_level,
+        "status": training_session.status,
+        "judgment": judgment_data,
+        "created_at": training_session.created_at.isoformat() if training_session.created_at else None,
+        "ended_at": training_session.ended_at.isoformat() if training_session.ended_at else None,
+        "transcript": transcript,
+    }
 
 
 # Coach endpoints for viewing statistics

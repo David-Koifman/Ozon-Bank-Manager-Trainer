@@ -43,9 +43,10 @@ Create a `.env` file in the root directory:
 export LLM_PROVIDER=openrouter
 
 # OpenRouter Configuration
-export OPENROUTER_API_KEY=your_openrouter_api_key_here
-export OPENROUTER_MODEL=openai/gpt-4o-mini
-export OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+export OPENROUTER_API_KEY='your_openrouter_api_key_here'
+export OPENROUTER_MODEL='qwen/qwen-2.5-72b-instruct'
+export LLM_AS_JUDGE_OPENROUTER_MODEL='qwen/qwen-2.5-72b-instruct'
+export OPENROUTER_BASE_URL='https://openrouter.ai/api/v1'
 ```
 Then in terminal
 ```bash

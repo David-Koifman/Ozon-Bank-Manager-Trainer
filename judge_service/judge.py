@@ -169,9 +169,11 @@ class LLMJudge:
 
             if self.use_structured_output:
                 try:
+                    # Escape braces in prompt_text to prevent LangChain from parsing them as variables
+                    escaped_prompt_text = prompt_text.replace("{", "{{").replace("}", "}}")
                     prompt = ChatPromptTemplate.from_messages([
                         ("system", "You are a strict evaluator. Follow the instructions precisely."),
-                        ("user", prompt_text),
+                        ("user", escaped_prompt_text),
                     ])
                     structured_llm = self.llm.with_structured_output(EvaluationResponse)
                     chain = prompt | structured_llm
@@ -185,12 +187,14 @@ class LLMJudge:
                     format_instructions = self.output_parser.get_format_instructions()
                     full_prompt_text = prompt_text + "\n\n" + format_instructions
 
+                    # Escape braces in prompt_text to prevent LangChain from parsing them as variables
+                    escaped_full_prompt_text = full_prompt_text.replace("{", "{{").replace("}", "}}")
                     prompt = ChatPromptTemplate.from_messages([
                         ("system", "You are a strict evaluator. Follow the instructions precisely."),
-                        ("user", "{prompt_text}"),
+                        ("user", escaped_full_prompt_text),
                     ])
                     raw_chain = prompt | self.llm
-                    raw_response = raw_chain.invoke({"prompt_text": full_prompt_text})
+                    raw_response = raw_chain.invoke({})
 
                     content = raw_response.content if hasattr(raw_response, "content") else str(raw_response)
 
@@ -208,12 +212,14 @@ class LLMJudge:
                 format_instructions = self.output_parser.get_format_instructions()
                 full_prompt_text = prompt_text + "\n\n" + format_instructions
 
+                # Escape braces in prompt_text to prevent LangChain from parsing them as variables
+                escaped_full_prompt_text = full_prompt_text.replace("{", "{{").replace("}", "}}")
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", "You are a strict evaluator. Follow the instructions precisely."),
-                    ("user", "{prompt_text}"),
+                    ("user", escaped_full_prompt_text),
                 ])
                 chain = prompt | self.llm
-                raw_response = chain.invoke({"prompt_text": full_prompt_text})
+                raw_response = chain.invoke({})
 
                 if hasattr(raw_response, "content"):
                     content = raw_response.content

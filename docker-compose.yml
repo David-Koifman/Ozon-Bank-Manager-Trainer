@@ -85,7 +85,7 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
       # OpenRouter config (required if LLM_PROVIDER=openrouter)
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      - OPENROUTER_MODEL=${LLM_AS_JUDGE_OPENROUTER_MODEL:-openai/gpt-4o-mini}
       - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       # Ollama config (required if LLM_PROVIDER=ollama)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}

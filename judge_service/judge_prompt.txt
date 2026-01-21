@@ -20,8 +20,8 @@
 ---
 
 ## ШАГ 1. Найди приветствие менеджера
-1) Найди ПЕРВУЮ реплику менеджера в транскрипте (строку вида "MANAGER: ...").
-2) Назови её greeting_utterance (но НЕ добавляй это поле в ответ — используй только для принятия решения по ошибке).
+1. Найди ПЕРВУЮ реплику менеджера в транскрипте (строку вида "MANAGER: ...").
+2. Назови её greeting_utterance (но НЕ добавляй это поле в ответ — используй только для принятия решения по ошибке).
 
 Если первой реплики менеджера нет — считай greeting_utterance пустой строкой.
 
@@ -29,9 +29,9 @@
 
 ## ШАГ 2. Критическая ошибка: "банк" в самопрезентации (строгое правило)
 Добавляй в critical_errors ошибку про "банк" ТОЛЬКО если выполнены ВСЕ условия:
-A) Слово "банк" или "банка" (любой регистр) присутствует в greeting_utterance
-B) greeting_utterance содержит самопрезентацию менеджера (по смыслу): "меня зовут", "это <имя>", "я <имя>", "вас приветствует", "я из", "это <имя> из"
-C) Ты уверен(а), что "банк" относится именно к самопрезентации, а не к описанию продукта.
+A. Слово "банк" или "банка" (любой регистр) присутствует в greeting_utterance
+B. greeting_utterance содержит самопрезентацию менеджера (по смыслу): "меня зовут", "это <имя>", "я <имя>", "вас приветствует", "я из", "это <имя> из"
+C. Ты уверен(а), что "банк" относится именно к самопрезентации, а не к описанию продукта.
 
 Если есть сомнения — НЕ добавляй critical error.
 
@@ -47,62 +47,62 @@ C) Ты уверен(а), что "банк" относится именно к �
 
 Критерии:
 
-1) greeting_correct (binary)
+1. greeting_correct (binary)
 true: менеджер представился как сотрудник Ozon и НЕ использовал слово "банк" в самопрезентации greeting_utterance
 false: приветствие/самопрезентация некорректны или "банк" именно в самопрезентации greeting_utterance
 null: нет greeting_utterance / нет начала диалога
 
-2) congratulation_given (binary)
+2. congratulation_given (binary)
 true: менеджер поздравил с регистрацией/стартом на Ozon (по смыслу)
 false: поздравления нет
 null: нет данных
 
-3) compliance_free_account_ip (binary, релевантно для ИП)
+3. compliance_free_account_ip (binary, релевантно для ИП)
 true: сказано, что счёт/обслуживание бесплатно для новых продавцов (по смыслу)
 false: не сказано
 null: неприменимо/нет данных о форме
 
-4) compliance_free_account_oao (binary, релевантно для ООО/ОАО)
+4. compliance_free_account_oao (binary, релевантно для ООО/ОАО)
 true: сказано, что счёт/обслуживание бесплатно для новых продавцов (по смыслу)
 false: не сказано
 null: неприменимо/нет данных о форме
 
-5) compliance_account_docs_ip (binary, релевантно для ИП)
+5. compliance_account_docs_ip (binary, релевантно для ИП)
 true: сказано, что для ИП нужен только оригинал паспорта РФ (по смыслу)
 false: не сказано
 null: неприменимо/нет данных о форме
 
-6) compliance_account_docs_oao (binary, релевантно для ООО/ОАО)
+6. compliance_account_docs_oao (binary, релевантно для ООО/ОАО)
 true: сказано про документы для ООО/ОАО (по смыслу)
 false: не сказано
 null: неприменимо/нет данных о форме
 
-7) compliance_buh_free_usn_income (binary)
+7. compliance_buh_free_usn_income (binary)
 true: предложена бесплатная онлайн-бухгалтерия, и из диалога явно следует, что это релевантно (УСН Доходы, без сотрудников)
 false: бухгалтерия предложена явно не по условиям / или не предложена, когда условия явно выполнены
 null: профиль не подтверждён в диалоге
 
-8) objection_handling_existing (binary)
+8. objection_handling_existing (binary)
 true: при возражении "уже есть счет/банк" менеджер задал уточняющие вопросы про тарифы/лимиты/стоимость платежей (по смыслу)
 false: возражение было, но уточняющих вопросов нет
 null: возражения не было / нет данных
 
-9) objection_handling_second (binary)
+9. objection_handling_second (binary)
 true: при возражении "зачем второй счёт" объяснил ценность как дополнение (резерв/разделение/не потерять выплаты и т.п.)
 false: возражение было, но ценность не объяснена
 null: возражения не было / нет данных
 
-10) verification_agreement_correctly_understood (binary)
+10. verification_agreement_correctly_understood (binary)
 true: при согласии клиента менеджер уточнил понимание цели/условий встречи (по смыслу)
 false: согласие было, но уточнения нет
 null: согласия не было / нет данных
 
-11) closing_success (binary)
+11. closing_success (binary)
 true: встреча назначена и собраны ключевые детали (минимум дата/время + способ/канал подтверждения + город/место/формат)
 false: закрытие на встречу не доведено или не собраны ключевые данные
 null: нет финала / диалог оборван
 
-12) politeness (scale 0-10)
+12. politeness (scale 0-10)
 Оцени по формулировкам: вежливость, корректность, отсутствие давления.
 Если данных мало — 5.
 
@@ -122,37 +122,3 @@ null: нет финала / диалог оборван
 - "Бесплатно навсегда"
 
 ВАЖНО: слово "банк" критично ТОЛЬКО по правилу выше.
-
----
-
-## ФОРМАТ ОТВЕТА (строго JSON)
-Верни JSON строго по этой структуре:
-
-{{
-  "scores": {{
-    "greeting_correct": true|false|null,
-    "congratulation_given": true|false|null,
-    "compliance_free_account_ip": true|false|null,
-    "compliance_free_account_oao": true|false|null,
-    "compliance_account_docs_ip": true|false|null,
-    "compliance_account_docs_oao": true|false|null,
-    "compliance_buh_free_usn_income": true|false|null,
-    "objection_handling_existing": true|false|null,
-    "objection_handling_second": true|false|null,
-    "verification_agreement_correctly_understood": true|false|null,
-    "closing_success": true|false|null,
-    "politeness": 0
-  }},
-  "total_score": 0.0,
-  "critical_errors": [],
-  "feedback_positive": [],
-  "feedback_improvement": [],
-  "recommendations": [],
-  "timecodes": []
-}}
-
-Правила заполнения:
-- В scores включай ТОЛЬКО ключи из {relevant_criteria} (и politeness, если он там есть).
-- total_score всё равно заполни числом (0.0 допустимо).
-- critical_errors: строки с кратким описанием, без лишнего текста.
-

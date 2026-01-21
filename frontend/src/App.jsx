@@ -13,6 +13,20 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000/ws/call'
 
+// Mapping from English criterion names to Russian labels for detailed scores
+const CRITERION_LABELS_RU = {
+  'Greeting Correct': 'Правильное приветствие',
+  'Congratulation Given': 'Поздравление сделано',
+  'Compliance Free Account Oao': 'Соответствие: бесплатный счёт ООО',
+  'Compliance Free Account Ip': 'Соответствие: бесплатный счёт ИП',
+  'Compliance Account Docs Ip': 'Соответствие: документы по счёту ИП',
+  'Compliance Account Docs Oao': 'Соответствие: документы по счёту ООО',
+  'Compliance Buh Free Usn Income': 'Соответствие: бесплатное бухсопровождение (УСН доходы)',
+  'Verification Agreement Correctly Understood': 'Понимание условий соглашения подтверждено',
+  'Closing Success': 'Успешное завершение разговора',
+  'Politeness': 'Вежливость',
+}
+
 function App() {
   // Authentication state
   const [user, setUserState] = useState(getUser())
@@ -402,8 +416,10 @@ function App() {
       } else {
         scoreValue = value ? 10 : 0
       }
+      const rawName = criterion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+      const displayName = CRITERION_LABELS_RU[rawName] || rawName
       return {
-        aspect: criterion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        aspect: displayName,
         score: scoreValue,
         passed: value === true || (criterion === 'politeness' && value > 0)
       }
@@ -473,7 +489,7 @@ function App() {
           {/* Aspect Scores */}
           {aspectScores.length > 0 && (
             <div className="judgment-card">
-              {renderHeading('Detailed Scores')}
+              {renderHeading('Подробные оценки')}
               <div className="aspect-scores">
                 {aspectScores.map((aspect, idx) => {
                   const aspectColor = getScoreColor(aspect.score)
@@ -492,9 +508,9 @@ function App() {
                           }}
                         ></div>
                       </div>
-                      <p className="aspect-comment">
-                              {aspect.passed ? 'Passed' : 'Failed'}: {aspect.aspect}
-                      </p>
+                      {/* <p className="aspect-comment">
+                              {aspect.passed ? 'Выполнено' : 'Не выполнено'}: {aspect.aspect}
+                      </p> */}
                     </div>
                   )
                 })}
@@ -540,6 +556,59 @@ function App() {
         </div>
       </div>
     )
+  }
+
+  // Component to render dialogue transcript (if available)
+  const renderTranscript = (transcript) => {
+    if (!transcript) return null
+
+    // If backend returns transcript as plain string, just render it
+    if (typeof transcript === 'string') {
+      return (
+        <div className="session-transcript-card">
+          <h3>Dialogue Transcript</h3>
+          <pre className="transcript-plain">
+            {transcript}
+          </pre>
+        </div>
+      )
+    }
+
+    // If backend returns list of turns [{ role, text }] or similar
+    if (Array.isArray(transcript)) {
+      return (
+        <div className="session-transcript-card">
+          <h3>Dialogue Transcript</h3>
+          <div className="transcript-timeline">
+            {transcript.map((turn, idx) => {
+              const role = (turn.role || turn.speaker || '').toLowerCase()
+              const isManager = role === 'manager' || role === 'user'
+              const isClient = role === 'client' || role === 'assistant'
+
+              return (
+                <div
+                  key={idx}
+                  className={`transcript-turn ${
+                    isManager ? 'transcript-turn-manager' : ''
+                  } ${isClient ? 'transcript-turn-client' : ''}`}
+                >
+                  <div className="transcript-meta">
+                    <span className="transcript-speaker">
+                      {isManager ? 'Manager' : isClient ? 'Client' : (turn.role || 'Unknown')}
+                    </span>
+                  </div>
+                  <div className="transcript-text">
+                    {turn.text}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+
+    return null
   }
   
   // Start training session
@@ -903,10 +972,18 @@ function App() {
     setConversationHistory(prev => [...prev, message])
   }
 
-  // Navigate to session detail page
-  const viewSessionDetail = (session) => {
+  // Navigate to session detail page (load full details from backend)
+  const viewSessionDetail = async (session) => {
+    // Optimistically show basic info while loading details
     setSelectedSession(session)
     setView('session-detail')
+    setError(null)
+    try {
+      const fullSession = await authenticatedFetch(`/sessions/${session.session_id}`)
+      setSelectedSession(fullSession)
+    } catch (err) {
+      setError(`Failed to load session details: ${err.message}`)
+    }
   }
   
   // Navigate back to previous view
@@ -1184,6 +1261,13 @@ function App() {
                   )}
                 </div>
               </div>
+
+              {/* Dialogue transcript (if available from backend) */}
+              {selectedSession.transcript && (
+                <div className="session-transcript-full">
+                  {renderTranscript(selectedSession.transcript)}
+                </div>
+              )}
               
               {selectedSession.judgment ? (
                 <div className="session-judgment-full-page">
@@ -1418,31 +1502,45 @@ function App() {
                 </div>
               ) : (
                 <>
-                  {conversationHistory.map((msg, idx) => (
-                    <div key={idx} className={`message ${msg.type}`}>
-                      <div>
-                        <div className="message-bubble">
-                          {msg.text}
+                  <div className="transcript-timeline">
+                    {conversationHistory.map((msg, idx) => {
+                      const isManager = msg.type === 'user'
+                      const turnClass = isManager
+                        ? 'transcript-turn transcript-turn-manager'
+                        : 'transcript-turn transcript-turn-client'
+                      return (
+                        <div key={idx} className={turnClass}>
+                          <div className="transcript-meta">
+                            <span className="transcript-speaker">
+                              {isManager ? 'Manager' : 'Client'}
+                            </span>
+                          </div>
+                          <div className="transcript-text">
+                            {msg.text}
+                          </div>
+                          <div className="message-time">
+                            {msg.timestamp.toLocaleTimeString()}
+                          </div>
                         </div>
-                        <div className="message-time">
-                          {msg.timestamp.toLocaleTimeString()}
+                      )
+                    })}
+                    {/* Display partial transcription in real-time */}
+                    {partialTranscription && (
+                      <div className="transcript-turn transcript-turn-manager">
+                        <div className="transcript-meta">
+                          <span className="transcript-speaker">
+                            Manager
+                          </span>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                  {/* Display partial transcription in real-time */}
-                  {partialTranscription && (
-                    <div className="message user">
-                      <div>
-                        <div className="message-bubble partial-transcription">
+                        <div className="transcript-text partial-transcription">
                           {partialTranscription}
                         </div>
                         <div className="message-time">
                           Speaking...
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -1483,8 +1581,10 @@ function App() {
             } else {
               scoreValue = value ? 10 : 0
             }
+            const rawName = criterion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+            const displayName = CRITERION_LABELS_RU[rawName] || rawName
             return {
-              aspect: criterion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+              aspect: displayName,
               score: scoreValue,
               passed: value === true || (criterion === 'politeness' && value > 0)
             }
@@ -1554,7 +1654,7 @@ function App() {
                 {/* Aspect Scores */}
                 {aspectScores.length > 0 && (
                   <div className="judgment-card">
-                    <h3>Detailed Scores</h3>
+                    <h3>Подробные оценки</h3>
                     <div className="aspect-scores">
                       {aspectScores.map((aspect, idx) => {
                         const aspectColor = getScoreColor(aspect.score)
@@ -1573,9 +1673,9 @@ function App() {
                                 }}
                               ></div>
                             </div>
-                            <p className="aspect-comment">
-                              {aspect.passed ? 'Passed' : 'Failed'}: {aspect.aspect}
-                            </p>
+                            {/* <p className="aspect-comment">
+                              {aspect.passed ? 'Выполнено' : 'Не выполнено'}: {aspect.aspect}
+                            </p> */}
                           </div>
                         )
                       })}

@@ -463,3 +463,75 @@ class Database:
             logger.error(f"Database: Error getting all users statistics: {str(e)}", exc_info=True)
             raise
 
+    async def get_session_transcript(self, session_id: str) -> list:
+        """
+        Get transcript for a session by combining STT transcriptions and LLM responses.
+        
+        Returns a list of turns in chronological order:
+        [
+            {"role": "manager", "text": "..."},
+            {"role": "client", "text": "..."},
+            ...
+        ]
+        """
+        if not self._initialized:
+            raise RuntimeError("Database not initialized")
+        
+        from sqlalchemy import select
+        try:
+            async with self.async_session() as session:
+                # Get all STT transcriptions for this session (ordered by created_at)
+                stt_query = select(STTTranscription).where(
+                    STTTranscription.session_id == session_id
+                ).order_by(STTTranscription.created_at)
+                stt_result = await session.execute(stt_query)
+                stt_records = stt_result.scalars().all()
+                
+                # Get all LLM responses for this session (ordered by created_at)
+                llm_query = select(LLMResponse).where(
+                    LLMResponse.session_id == session_id
+                ).order_by(LLMResponse.created_at)
+                llm_result = await session.execute(llm_query)
+                llm_records = llm_result.scalars().all()
+                
+                # Build transcript by interleaving STT and LLM responses
+                transcript = []
+                
+                # Create a map of user_input -> LLM response for matching
+                llm_map = {llm.user_input: llm.response_text for llm in llm_records}
+                
+                # Process STT transcriptions in order
+                for stt in stt_records:
+                    # Add manager turn (STT transcription)
+                    transcript.append({
+                        "role": "manager",
+                        "text": stt.transcription
+                    })
+                    
+                    # Find corresponding LLM response (match by user_input)
+                    if stt.transcription in llm_map:
+                        transcript.append({
+                            "role": "client",
+                            "text": llm_map[stt.transcription]
+                        })
+                    else:
+                        logger.warning(
+                            "No matching LLM response found for STT transcription: %r (session_id=%s)",
+                            stt.transcription[:50] if stt.transcription else "",
+                            session_id,
+                        )
+                
+                logger.info(
+                    "Database: Retrieved transcript for session %s: %d turns",
+                    session_id,
+                    len(transcript),
+                )
+                return transcript
+        except Exception as e:
+            logger.error(
+                "Database: Error getting transcript for session %s: %s",
+                session_id,
+                str(e),
+                exc_info=True,
+            )
+            raise
